@@ -5,18 +5,18 @@ import 'screens/inbox_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ReadifyApp());
+  runApp(const QMailApp());
 }
 
-class ReadifyApp extends StatelessWidget {
-  const ReadifyApp({super.key});
+class QMailApp extends StatelessWidget {
+  const QMailApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (context) => EmailProvider()..initialize(),
       child: MaterialApp(
-        title: 'Readify - Smart Email Reader',
+        title: 'QMail - Email Client',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(

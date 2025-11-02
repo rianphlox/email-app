@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_html/flutter_html.dart';
 import 'package:open_file/open_file.dart';
 import '../models/email_message.dart';
+import '../services/gmail_email_renderer.dart';
 
 class EmailDetailScreen extends StatelessWidget {
   final EmailMessage message;
@@ -144,41 +144,8 @@ class EmailDetailScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Email body
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (message.htmlBody != null && message.htmlBody!.isNotEmpty) ...[
-                      // HTML body
-                      Html(
-                        data: message.htmlBody!,
-                        style: {
-                          "body": Style(
-                            fontSize: FontSize(16.0),
-                            lineHeight: LineHeight(1.5),
-                          ),
-                          "p": Style(
-                            margin: Margins.symmetric(vertical: 8),
-                          ),
-                        },
-                      ),
-                    ] else ...[
-                      // Plain text body
-                      SelectableText(
-                        message.textBody,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+            // Email body - Gmail-style rendering
+            GmailEmailRenderer.renderEmail(message, context),
           ],
         ),
       ),

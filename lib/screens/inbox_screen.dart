@@ -18,16 +18,15 @@ class _InboxScreenState extends State<InboxScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<provider.EmailProvider>().fetchEmails();
-    });
+    // Email fetching is now handled by EmailProvider after Gmail API initialization
+    // This prevents race conditions where fetchEmails() is called before Gmail API is ready
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Readify'),
+        title: const Text('QMail'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           Consumer<provider.EmailProvider>(
@@ -319,7 +318,7 @@ class _InboxScreenState extends State<InboxScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              'Welcome to Readify',
+              'Welcome to QMail',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.bold,
@@ -461,68 +460,20 @@ class _InboxScreenState extends State<InboxScreen> {
           const SnackBar(content: Text('Email deleted')),
         );
       },
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: message.isRead
-                ? Theme.of(context).colorScheme.surfaceContainerHighest
-                : Theme.of(context).colorScheme.primary,
-            child: Text(
-              message.from.isNotEmpty ? message.from[0].toUpperCase() : 'U',
-              style: TextStyle(
-                color: message.isRead
-                    ? Theme.of(context).colorScheme.onSurfaceVariant
-                    : Theme.of(context).colorScheme.onPrimary,
-                fontWeight: FontWeight.bold,
-              ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        decoration: BoxDecoration(
+          color: message.isRead
+              ? Colors.transparent
+              : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+          border: Border(
+            bottom: BorderSide(
+              color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
+              width: 0.5,
             ),
           ),
-          title: Text(
-            message.from,
-            style: TextStyle(
-              fontWeight: message.isRead ? FontWeight.normal : FontWeight.bold,
-            ),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                message.subject,
-                style: TextStyle(
-                  fontWeight: message.isRead ? FontWeight.normal : FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                message.textBody,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-            ],
-          ),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _formatDate(message.date),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-              if (message.attachments?.isNotEmpty ?? false)
-                const Icon(Icons.attach_file, size: 16),
-              if (message.isImportant)
-                const Icon(Icons.star, size: 16, color: Colors.orange),
-            ],
-          ),
+        ),
+        child: InkWell(
           onTap: () {
             if (!message.isRead) {
               emailProvider.markAsRead(message);
@@ -534,6 +485,130 @@ class _InboxScreenState extends State<InboxScreen> {
               ),
             );
           },
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Sender avatar
+              Container(
+                width: 40,
+                height: 40,
+                margin: const EdgeInsets.only(right: 12.0),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: message.isRead
+                      ? Theme.of(context).colorScheme.surfaceContainerHighest
+                      : Theme.of(context).colorScheme.primary,
+                ),
+                child: Center(
+                  child: Text(
+                    message.from.isNotEmpty ? message.from[0].toUpperCase() : 'U',
+                    style: TextStyle(
+                      color: message.isRead
+                          ? Theme.of(context).colorScheme.onSurfaceVariant
+                          : Theme.of(context).colorScheme.onPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Email content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Sender name and time row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            message.from,
+                            style: TextStyle(
+                              fontWeight: message.isRead ? FontWeight.w500 : FontWeight.w600,
+                              fontSize: 16,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            if (message.attachments?.isNotEmpty ?? false)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 4.0),
+                                child: Icon(
+                                  Icons.attach_file,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                ),
+                              ),
+                            if (message.isImportant)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 4.0),
+                                child: Icon(
+                                  Icons.star,
+                                  size: 16,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                            Text(
+                              _formatDate(message.date),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    // Subject line
+                    Text(
+                      message.subject,
+                      style: TextStyle(
+                        fontWeight: message.isRead ? FontWeight.normal : FontWeight.w500,
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.9),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+
+                    const SizedBox(height: 2),
+
+                    // Email preview
+                    Text(
+                      message.textBody,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Read indicator dot
+              if (!message.isRead)
+                Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(left: 8.0, top: 8.0),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -570,17 +645,25 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
+    // Convert dates to West African Time (UTC+1) for Lagos timezone
+    final lagosOffset = const Duration(hours: 1);
+    final lagosDate = date.toUtc().add(lagosOffset);
+    final now = DateTime.now().toUtc().add(lagosOffset);
+    final difference = now.difference(lagosDate);
 
     if (difference.inDays == 0) {
-      return '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (difference.inDays == 1) {
-      return 'Yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
+      // Today: Show time only (Gmail style)
+      final hour = lagosDate.hour > 12 ? lagosDate.hour - 12 : (lagosDate.hour == 0 ? 12 : lagosDate.hour);
+      final amPm = lagosDate.hour >= 12 ? 'AM' : 'PM';
+      return '$hour:${lagosDate.minute.toString().padLeft(2, '0')} $amPm';
+    } else if (lagosDate.year == now.year) {
+      // This year: Show month and day (Gmail style: "Nov 1")
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${months[lagosDate.month - 1]} ${lagosDate.day}';
     } else {
-      return '${date.day}/${date.month}';
+      // Previous years: Show month, day, and year (Gmail style: "Nov 1, 2023")
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${months[lagosDate.month - 1]} ${lagosDate.day}, ${lagosDate.year}';
     }
   }
 
@@ -610,7 +693,7 @@ class _InboxScreenState extends State<InboxScreen> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Readify',
+                      'QMail',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onPrimary,
                         fontSize: 24,
@@ -668,9 +751,9 @@ class _InboxScreenState extends State<InboxScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('About Readify'),
+        title: const Text('About QMail'),
         content: const Text(
-          'Readify - Smart Email Reader\n\n'
+          'QMail - Smart Email Reader\n\n'
           'A modern, secure email client built with Flutter.\n\n'
           'Features:\n'
           '• Multiple email providers\n'

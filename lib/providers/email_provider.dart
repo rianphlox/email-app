@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/email_account.dart' as models;
 import '../models/email_message.dart';
 import '../services/auth_service.dart';
 import '../services/final_email_service.dart';
+import '../services/gmail_api_service.dart';
 
 class EmailProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -54,6 +57,14 @@ class EmailProvider extends ChangeNotifier {
     _accounts = _accountsBox!.values.toList();
     if (_accounts.isNotEmpty) {
       _currentAccount = _accounts.first;
+
+      // Load cached emails immediately for better UX
+      _loadCachedEmails();
+
+      // Re-initialize Gmail API service if current account is Gmail
+      if (_currentAccount!.provider == models.EmailProvider.gmail) {
+        _reinitializeGmailServiceOnStartup();
+      }
     }
 
     notifyListeners();
@@ -80,6 +91,14 @@ class EmailProvider extends ChangeNotifier {
         _accounts.add(account);
         _currentAccount = account;
         notifyListeners();
+
+        // Fetch emails after successful sign-in with a small delay to ensure Gmail API is ready
+        print('EmailProvider: Account set successfully, scheduling email fetch...');
+        Future.delayed(const Duration(milliseconds: 500), () {
+          print('EmailProvider: Starting delayed email fetch...');
+          fetchEmails();
+        });
+
         return true;
       }
     } catch (e) {
@@ -180,11 +199,14 @@ class EmailProvider extends ChangeNotifier {
   }
 
   void switchFolder(EmailFolder folder) {
-    _currentFolder = folder;
-    _messages.clear();
-    notifyListeners();
-    fetchEmails();
+    if (_currentFolder != folder) {
+      _currentFolder = folder;
+      _messages.clear();
+      notifyListeners();
+      fetchEmails();
+    }
   }
+
 
   Future<void> fetchEmails({int limit = 50}) async {
     if (_currentAccount == null) return;
@@ -197,12 +219,21 @@ class EmailProvider extends ChangeNotifier {
 
       if (_currentAccount!.provider == models.EmailProvider.gmail) {
         // Use Gmail API for Gmail accounts
-        final gmailService = AuthService.getGmailApiService();
+        var gmailService = AuthService.getGmailApiService();
+
+        // If Gmail service is not ready, wait a bit and try again
         if (gmailService == null) {
-          throw Exception('Gmail API service not initialized');
+          print('Gmail API service not ready, waiting...');
+          await Future.delayed(const Duration(milliseconds: 1000));
+          gmailService = AuthService.getGmailApiService();
         }
 
-        emails = await gmailService.fetchEmails(maxResults: limit);
+        if (gmailService == null) {
+          throw Exception('Gmail API service not initialized after waiting');
+        }
+
+        print('Fetching emails with Gmail API service for folder: $_currentFolder');
+        emails = await gmailService.fetchEmails(maxResults: limit, folder: _currentFolder);
 
         // Update account ID for each message
         for (var email in emails) {
@@ -365,6 +396,72 @@ class EmailProvider extends ChangeNotifier {
     _currentAccount = null;
     _messages.clear();
     notifyListeners();
+  }
+
+  /// Load cached emails from local storage for immediate display
+  void _loadCachedEmails() {
+    try {
+      print('EmailProvider: Loading cached emails...');
+      final cachedMessages = _messagesBox!.values
+          .where((email) => email.accountId == _currentAccount!.id)
+          .toList();
+
+      if (cachedMessages.isNotEmpty) {
+        // Sort by date (newest first)
+        cachedMessages.sort((a, b) => b.date.compareTo(a.date));
+        _messages = cachedMessages;
+        print('EmailProvider: Loaded ${cachedMessages.length} cached emails');
+        notifyListeners();
+      } else {
+        print('EmailProvider: No cached emails found');
+      }
+    } catch (e) {
+      print('EmailProvider: Error loading cached emails: $e');
+    }
+  }
+
+  Future<void> _reinitializeGmailServiceOnStartup() async {
+    try {
+      print('EmailProvider: Re-initializing Gmail API service on startup...');
+
+      // Try to sign in silently to get the current user
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        scopes: [
+          'email',
+          'https://www.googleapis.com/auth/gmail.readonly',
+          'https://www.googleapis.com/auth/gmail.send',
+          'https://www.googleapis.com/auth/gmail.modify',
+        ],
+        // serverClientId is not supported on web, only include for mobile platforms
+        serverClientId: kIsWeb ? null : '968928828097-lh79bdv88j7quj5e2eh30tujskqts17b.apps.googleusercontent.com',
+      );
+
+      final GoogleSignInAccount? currentUser = await googleSignIn.signInSilently();
+      if (currentUser != null) {
+        print('EmailProvider: Found signed-in user: ${currentUser.email}');
+
+        // Initialize Gmail API service with current user
+        final gmailService = GmailApiService();
+        final connected = await gmailService.connectWithGoogleSignIn(currentUser);
+
+        if (connected) {
+          print('EmailProvider: Successfully re-initialized Gmail API service');
+          AuthService.setGmailApiService(gmailService);
+
+          // Fetch emails after successful Gmail API reconnection
+          print('EmailProvider: Gmail API ready, fetching emails...');
+          Future.delayed(const Duration(milliseconds: 300), () {
+            fetchEmails();
+          });
+        } else {
+          print('EmailProvider: Failed to connect to Gmail API on startup');
+        }
+      } else {
+        print('EmailProvider: No signed-in user found on startup');
+      }
+    } catch (e) {
+      print('EmailProvider: Error re-initializing Gmail service on startup: $e');
+    }
   }
 
   @override

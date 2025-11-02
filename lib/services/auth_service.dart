@@ -1,5 +1,6 @@
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import '../models/email_account.dart';
 import 'gmail_api_service.dart';
@@ -13,7 +14,8 @@ class AuthService {
       'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/gmail.modify',
     ],
-    serverClientId: '968928828097-lh79bdv88j7quj5e2eh30tujskqts17b.apps.googleusercontent.com',
+    // serverClientId is not supported on web, only include for mobile platforms
+    serverClientId: kIsWeb ? null : '968928828097-lh79bdv88j7quj5e2eh30tujskqts17b.apps.googleusercontent.com',
   );
 
   static GmailApiService? _gmailApiService;
@@ -87,6 +89,10 @@ class AuthService {
 
   static GmailApiService? getGmailApiService() {
     return _gmailApiService;
+  }
+
+  static void setGmailApiService(GmailApiService service) {
+    _gmailApiService = service;
   }
 
   Future<EmailAccount?> signInWithOutlook(String email, String password) async {
