@@ -6,68 +6,161 @@ import '../models/email_account.dart';
 import '../screens/add_account_screen.dart';
 import '../screens/email_detail_screen.dart';
 import '../screens/compose_screen.dart';
+import '../services/email_categorizer.dart';
 
 class InboxScreen extends StatefulWidget {
-  const InboxScreen({Key? key}) : super(key: key);
+  const InboxScreen({super.key});
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
 }
 
-class _InboxScreenState extends State<InboxScreen> {
+class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final Set<String> _selectedEmails = <String>{};
+  bool _isSelectionMode = false;
+
+  final List<EmailCategory> _categories = [
+    EmailCategory.primary,
+    EmailCategory.promotions,
+    EmailCategory.social,
+    EmailCategory.updates,
+  ];
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: _categories.length, vsync: this);
     // Email fetching is now handled by EmailProvider after Gmail API initialization
     // This prevents race conditions where fetchEmails() is called before Gmail API is ready
   }
 
   @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('QMail'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          Consumer<provider.EmailProvider>(
-            builder: (context, emailProvider, child) {
-              if (emailProvider.accounts.isNotEmpty) {
-                return PopupMenuButton<String>(
-                  onSelected: (value) {
-                    if (value == 'add_account') {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AddAccountScreen(),
+      appBar: _isSelectionMode
+        ? _buildSelectionAppBar()
+        : AppBar(
+            title: const Text('QMail'),
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            bottom: _buildTabBar(),
+            actions: [
+              // Connectivity status indicator
+              Consumer<provider.EmailProvider>(
+                builder: (context, emailProvider, child) {
+                  if (emailProvider.isOffline) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.cloud_off,
+                          color: Colors.orange,
                         ),
-                      );
-                    } else if (value == 'refresh') {
-                      emailProvider.fetchEmails();
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'refresh',
-                      child: Row(
-                        children: [
-                          Icon(Icons.refresh),
-                          SizedBox(width: 8),
-                          Text('Refresh'),
-                        ],
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Offline - ${emailProvider.connectivityStatus}'),
+                              action: emailProvider.hasPendingOperations
+                                  ? SnackBarAction(
+                                      label: '${emailProvider.pendingOperationsCount} pending',
+                                      onPressed: () {},
+                                    )
+                                  : null,
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'add_account',
-                      child: Row(
-                        children: [
-                          Icon(Icons.add),
-                          SizedBox(width: 8),
-                          Text('Add Account'),
-                        ],
+                    );
+                  } else if (emailProvider.hasPendingOperations) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: IconButton(
+                        icon: Stack(
+                          children: [
+                            Icon(Icons.cloud_sync, color: Colors.blue),
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              child: Container(
+                                padding: EdgeInsets.all(2),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                constraints: BoxConstraints(
+                                  minWidth: 16,
+                                  minHeight: 16,
+                                ),
+                                child: Text(
+                                  '${emailProvider.pendingOperationsCount}',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Syncing ${emailProvider.pendingOperationsCount} operations...'),
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                  ],
-                );
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+              Consumer<provider.EmailProvider>(
+                builder: (context, emailProvider, child) {
+                  if (emailProvider.accounts.isNotEmpty) {
+                    return PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'add_account') {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const AddAccountScreen(),
+                            ),
+                          );
+                        } else if (value == 'refresh') {
+                          emailProvider.syncEmails();
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'refresh',
+                          child: Row(
+                            children: [
+                              Icon(Icons.refresh),
+                              SizedBox(width: 8),
+                              Text('Refresh'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'add_account',
+                          child: Row(
+                            children: [
+                              Icon(Icons.add),
+                              SizedBox(width: 8),
+                              Text('Add Account'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
               }
               return IconButton(
                 icon: const Icon(Icons.add),
@@ -99,7 +192,7 @@ class _InboxScreenState extends State<InboxScreen> {
             return _buildErrorState(emailProvider.error!);
           }
 
-          return _buildEmailList(emailProvider);
+          return _buildCategorizedInbox(emailProvider);
         },
       ),
       floatingActionButton: Consumer<provider.EmailProvider>(
@@ -375,7 +468,7 @@ class _InboxScreenState extends State<InboxScreen> {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () {
-                context.read<provider.EmailProvider>().fetchEmails();
+                context.read<provider.EmailProvider>().syncEmails();
               },
               child: const Text('Retry'),
             ),
@@ -385,264 +478,7 @@ class _InboxScreenState extends State<InboxScreen> {
     );
   }
 
-  Widget _buildEmailList(provider.EmailProvider emailProvider) {
-    return RefreshIndicator(
-      onRefresh: () async {
-        await emailProvider.fetchEmails();
-      },
-      child: Column(
-        children: [
-          // Folder header
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16.0),
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Row(
-              children: [
-                Icon(
-                  _getFolderIcon(emailProvider.currentFolder),
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _getFolderName(emailProvider.currentFolder),
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const Spacer(),
-                if (emailProvider.isLoading)
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
-            ),
-          ),
 
-          // Email list
-          Expanded(
-            child: emailProvider.messages.isEmpty
-                ? const Center(
-                    child: Text('No emails found'),
-                  )
-                : ListView.builder(
-                    itemCount: emailProvider.messages.length,
-                    itemBuilder: (context, index) {
-                      final message = emailProvider.messages[index];
-                      return _buildEmailTile(message, emailProvider);
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmailTile(EmailMessage message, provider.EmailProvider emailProvider) {
-    return Dismissible(
-      key: Key(message.messageId),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        color: Colors.red,
-        child: const Padding(
-          padding: EdgeInsets.only(right: 16.0),
-          child: Icon(Icons.delete, color: Colors.white),
-        ),
-      ),
-      onDismissed: (direction) {
-        emailProvider.deleteEmail(message);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email deleted')),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        decoration: BoxDecoration(
-          color: message.isRead
-              ? Colors.transparent
-              : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-          border: Border(
-            bottom: BorderSide(
-              color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
-              width: 0.5,
-            ),
-          ),
-        ),
-        child: InkWell(
-          onTap: () {
-            if (!message.isRead) {
-              emailProvider.markAsRead(message);
-            }
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => EmailDetailScreen(message: message),
-              ),
-            );
-          },
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Sender avatar
-              Container(
-                width: 40,
-                height: 40,
-                margin: const EdgeInsets.only(right: 12.0),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: message.isRead
-                      ? Theme.of(context).colorScheme.surfaceContainerHighest
-                      : Theme.of(context).colorScheme.primary,
-                ),
-                child: Center(
-                  child: Text(
-                    message.from.isNotEmpty ? message.from[0].toUpperCase() : 'U',
-                    style: TextStyle(
-                      color: message.isRead
-                          ? Theme.of(context).colorScheme.onSurfaceVariant
-                          : Theme.of(context).colorScheme.onPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ),
-
-              // Email content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Sender name and time row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            message.from,
-                            style: TextStyle(
-                              fontWeight: message.isRead ? FontWeight.w500 : FontWeight.w600,
-                              fontSize: 16,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            if (message.attachments?.isNotEmpty ?? false)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: Icon(
-                                  Icons.attach_file,
-                                  size: 16,
-                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                ),
-                              ),
-                            if (message.isImportant)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: Icon(
-                                  Icons.star,
-                                  size: 16,
-                                  color: Colors.orange,
-                                ),
-                              ),
-                            Text(
-                              _formatDate(message.date),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    // Subject line
-                    Text(
-                      message.subject,
-                      style: TextStyle(
-                        fontWeight: message.isRead ? FontWeight.normal : FontWeight.w500,
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.9),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-
-                    const SizedBox(height: 2),
-
-                    // Email preview
-                    Text(
-                      message.textBody,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-
-              // Read indicator dot
-              if (!message.isRead)
-                Container(
-                  width: 8,
-                  height: 8,
-                  margin: const EdgeInsets.only(left: 8.0, top: 8.0),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  IconData _getFolderIcon(EmailFolder folder) {
-    switch (folder) {
-      case EmailFolder.inbox:
-        return Icons.inbox;
-      case EmailFolder.sent:
-        return Icons.send;
-      case EmailFolder.drafts:
-        return Icons.drafts;
-      case EmailFolder.trash:
-        return Icons.delete;
-      default:
-        return Icons.folder;
-    }
-  }
-
-  String _getFolderName(EmailFolder folder) {
-    switch (folder) {
-      case EmailFolder.inbox:
-        return 'All Inboxes';
-      case EmailFolder.sent:
-        return 'Sent';
-      case EmailFolder.drafts:
-        return 'Drafts';
-      case EmailFolder.trash:
-        return 'Trash';
-      default:
-        return 'Folder';
-    }
-  }
 
   String _formatDate(DateTime date) {
     // Convert dates to West African Time (UTC+1) for Lagos timezone
@@ -793,5 +629,482 @@ class _InboxScreenState extends State<InboxScreen> {
         ],
       ),
     );
+  }
+
+  PreferredSizeWidget? _buildTabBar() {
+    final emailProvider = context.watch<provider.EmailProvider>();
+    if (emailProvider.accounts.isEmpty) return null;
+
+    return TabBar(
+      controller: _tabController,
+      isScrollable: true,
+      tabs: _categories.map((category) {
+        final unreadCount = EmailCategorizer.getUnreadCount(
+          emailProvider.messages,
+          category,
+        );
+        return Tab(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(EmailCategorizer.getCategoryIcon(category)),
+              const SizedBox(width: 4),
+              Text(EmailCategorizer.getCategoryDisplayName(category)),
+              if (unreadCount > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.error,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$unreadCount',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onError,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildCategorizedInbox(provider.EmailProvider emailProvider) {
+    return TabBarView(
+      controller: _tabController,
+      children: _categories.map((category) {
+        final categoryEmails = EmailCategorizer.getEmailsByCategory(
+          emailProvider.messages,
+          category,
+        );
+
+        if (categoryEmails.isEmpty) {
+          return _buildEmptyCategory(category);
+        }
+
+        return _buildCategoryEmailList(categoryEmails);
+      }).toList(),
+    );
+  }
+
+  Widget _buildEmptyCategory(EmailCategory category) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            EmailCategorizer.getCategoryIcon(category),
+            style: const TextStyle(fontSize: 48),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No ${EmailCategorizer.getCategoryDisplayName(category).toLowerCase()} emails',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryEmailList(List<EmailMessage> emails) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        await context.read<provider.EmailProvider>().syncEmails();
+      },
+      child: ListView.builder(
+        itemCount: emails.length,
+        itemBuilder: (context, index) {
+          final message = emails[index];
+          final isSelected = _selectedEmails.contains(message.messageId);
+
+          return Container(
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3)
+                  : null,
+            ),
+            child: InkWell(
+              onTap: () {
+                if (_isSelectionMode) {
+                  _toggleEmailSelection(message.messageId);
+                } else {
+                  final emailProvider = context.read<provider.EmailProvider>();
+                  if (!message.isRead) {
+                    emailProvider.markAsRead(message);
+                  }
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EmailDetailScreen(message: message),
+                    ),
+                  );
+                }
+              },
+              onLongPress: () {
+                if (!_isSelectionMode) {
+                  _enterSelectionMode(message.messageId);
+                } else {
+                  _toggleEmailSelection(message.messageId);
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Selection indicator or sender avatar
+                    Container(
+                      width: 40,
+                      height: 40,
+                      margin: const EdgeInsets.only(right: 12.0),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : message.isRead
+                                ? Theme.of(context).colorScheme.surfaceContainerHighest
+                                : Theme.of(context).colorScheme.primary,
+                      ),
+                      child: Center(
+                        child: isSelected
+                            ? Icon(
+                                Icons.check,
+                                color: Theme.of(context).colorScheme.onPrimary,
+                                size: 20,
+                              )
+                            : Text(
+                                message.from.isNotEmpty ? message.from[0].toUpperCase() : 'U',
+                                style: TextStyle(
+                                  color: message.isRead
+                                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                                      : Theme.of(context).colorScheme.onPrimary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                      ),
+                    ),
+
+                    // Email content
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Sender name and time row
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  message.from,
+                                  style: TextStyle(
+                                    fontWeight: message.isRead ? FontWeight.w500 : FontWeight.w600,
+                                    fontSize: 16,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  // Category chip
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: _getCategoryColor(message.category).withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      EmailCategorizer.getCategoryDisplayName(message.category),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                        color: _getCategoryColor(message.category),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _formatDate(message.date),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 4),
+
+                          // Subject line
+                          Text(
+                            message.subject,
+                            style: TextStyle(
+                              fontWeight: message.isRead ? FontWeight.normal : FontWeight.w500,
+                              fontSize: 14,
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.9),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+
+                          const SizedBox(height: 2),
+
+                          // Email preview
+                          Text(
+                            message.textBody,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Builds the selection mode AppBar with Gmail-style actions
+  AppBar _buildSelectionAppBar() {
+    return AppBar(
+      backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: _exitSelectionMode,
+      ),
+      title: Text('${_selectedEmails.length}'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.archive),
+          onPressed: _selectedEmails.isNotEmpty ? _archiveSelected : null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete),
+          onPressed: _selectedEmails.isNotEmpty ? _deleteSelected : null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.mark_email_read),
+          onPressed: _selectedEmails.isNotEmpty ? _markSelectedAsRead : null,
+        ),
+        PopupMenuButton<String>(
+          onSelected: (value) {
+            switch (value) {
+              case 'select_all':
+                _selectAll();
+                break;
+              case 'mark_unread':
+                _markSelectedAsUnread();
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'select_all',
+              child: Row(
+                children: [
+                  Icon(Icons.select_all),
+                  SizedBox(width: 8),
+                  Text('Select all'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'mark_unread',
+              child: Row(
+                children: [
+                  Icon(Icons.mark_email_unread),
+                  SizedBox(width: 8),
+                  Text('Mark as unread'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Enters selection mode
+  void _enterSelectionMode(String messageId) {
+    setState(() {
+      _isSelectionMode = true;
+      _selectedEmails.add(messageId);
+    });
+  }
+
+  /// Exits selection mode
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedEmails.clear();
+    });
+  }
+
+  /// Toggles selection of an email
+  void _toggleEmailSelection(String messageId) {
+    setState(() {
+      if (_selectedEmails.contains(messageId)) {
+        _selectedEmails.remove(messageId);
+        if (_selectedEmails.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedEmails.add(messageId);
+      }
+    });
+  }
+
+  /// Selects all emails in the current category
+  void _selectAll() {
+    final emailProvider = context.read<provider.EmailProvider>();
+    final currentCategory = _categories[_tabController.index];
+    final categoryEmails = EmailCategorizer.getEmailsByCategory(
+      emailProvider.messages,
+      currentCategory,
+    );
+
+    setState(() {
+      _selectedEmails.addAll(categoryEmails.map((e) => e.messageId));
+    });
+  }
+
+  /// Archives selected emails
+  void _archiveSelected() async {
+    final emailProvider = context.read<provider.EmailProvider>();
+    for (final messageId in _selectedEmails) {
+      // Archive functionality - for now just remove from UI
+      final message = emailProvider.messages.firstWhere(
+        (m) => m.messageId == messageId,
+        orElse: () => EmailMessage(
+          messageId: '',
+          accountId: '',
+          subject: '',
+          from: '',
+          to: [],
+          date: DateTime.now(),
+          textBody: '',
+          folder: EmailFolder.inbox,
+          uid: 0,
+        ),
+      );
+      if (message.messageId.isNotEmpty) {
+        await emailProvider.deleteEmail(message);
+      }
+    }
+    _exitSelectionMode();
+  }
+
+  /// Deletes selected emails
+  void _deleteSelected() async {
+    final emailProvider = context.read<provider.EmailProvider>();
+    for (final messageId in _selectedEmails) {
+      final message = emailProvider.messages.firstWhere(
+        (m) => m.messageId == messageId,
+        orElse: () => EmailMessage(
+          messageId: '',
+          accountId: '',
+          subject: '',
+          from: '',
+          to: [],
+          date: DateTime.now(),
+          textBody: '',
+          folder: EmailFolder.inbox,
+          uid: 0,
+        ),
+      );
+      if (message.messageId.isNotEmpty) {
+        await emailProvider.deleteEmail(message);
+      }
+    }
+    _exitSelectionMode();
+  }
+
+  /// Marks selected emails as read
+  void _markSelectedAsRead() async {
+    final emailProvider = context.read<provider.EmailProvider>();
+    for (final messageId in _selectedEmails) {
+      final message = emailProvider.messages.firstWhere(
+        (m) => m.messageId == messageId,
+        orElse: () => EmailMessage(
+          messageId: '',
+          accountId: '',
+          subject: '',
+          from: '',
+          to: [],
+          date: DateTime.now(),
+          textBody: '',
+          folder: EmailFolder.inbox,
+          uid: 0,
+        ),
+      );
+      if (message.messageId.isNotEmpty) {
+        await emailProvider.markAsRead(message);
+      }
+    }
+    _exitSelectionMode();
+  }
+
+  /// Marks selected emails as unread
+  void _markSelectedAsUnread() async {
+    final emailProvider = context.read<provider.EmailProvider>();
+    for (final messageId in _selectedEmails) {
+      final message = emailProvider.messages.firstWhere(
+        (m) => m.messageId == messageId,
+        orElse: () => EmailMessage(
+          messageId: '',
+          accountId: '',
+          subject: '',
+          from: '',
+          to: [],
+          date: DateTime.now(),
+          textBody: '',
+          folder: EmailFolder.inbox,
+          uid: 0,
+        ),
+      );
+      if (message.messageId.isNotEmpty) {
+        // Set as unread
+        message.isRead = false;
+        await emailProvider.markAsRead(message); // This will sync the change
+      }
+    }
+    _exitSelectionMode();
+  }
+
+  /// Gets the color for a category
+  Color _getCategoryColor(EmailCategory category) {
+    switch (category) {
+      case EmailCategory.primary:
+        return Colors.blue;
+      case EmailCategory.promotions:
+        return Colors.orange;
+      case EmailCategory.social:
+        return Colors.green;
+      case EmailCategory.updates:
+        return Colors.purple;
+    }
   }
 }

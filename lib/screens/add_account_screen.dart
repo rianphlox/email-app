@@ -1,16 +1,24 @@
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/email_provider.dart' as provider;
 import '../utils/constants.dart';
 
+/// A screen that allows users to add a new email account.
+///
+/// This screen provides options for adding a Gmail, Outlook, Yahoo, or custom
+/// email account. For Gmail, it uses the Google Sign-In flow. For other
+/// providers, it presents a form for entering the account details.
 class AddAccountScreen extends StatefulWidget {
-  const AddAccountScreen({Key? key}) : super(key: key);
+  const AddAccountScreen({super.key});
 
   @override
   State<AddAccountScreen> createState() => _AddAccountScreenState();
 }
 
 class _AddAccountScreenState extends State<AddAccountScreen> {
+  // --- Private Properties ---
+
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -20,8 +28,10 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   final _smtpServerController = TextEditingController();
   final _smtpPortController = TextEditingController(text: '587');
 
-  String _selectedProvider = 'custom';
+  String _selectedProvider = 'gmail';
   bool _isSSL = true;
+
+  // --- Lifecycle Methods ---
 
   @override
   void initState() {
@@ -29,6 +39,57 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     _emailController.addListener(_onEmailChanged);
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _imapServerController.dispose();
+    _imapPortController.dispose();
+    _smtpServerController.dispose();
+    _smtpPortController.dispose();
+    super.dispose();
+  }
+
+  // --- UI Build Method ---
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Add Email Account'),
+      ),
+      body: Consumer<provider.EmailProvider>(
+        builder: (context, emailProvider, child) {
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  // Provider selection buttons.
+                  _buildProviderSelection(),
+
+                  const SizedBox(height: 16),
+
+                  // Form for entering account details.
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: _buildAccountForm(emailProvider),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // --- Private Helper Methods ---
+
+  /// Automatically populates the server settings when the user enters their email address.
   void _onEmailChanged() {
     final email = _emailController.text.toLowerCase();
     if (email.contains('@')) {
@@ -45,376 +106,97 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Add Email Account'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: Consumer<provider.EmailProvider>(
-        builder: (context, emailProvider, child) {
-          return Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  // Provider selection
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Choose Email Provider',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 16),
-                          Wrap(
-                            alignment: WrapAlignment.spaceEvenly,
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _buildProviderButton('Gmail', 'gmail', Icons.email),
-                              _buildProviderButton('Outlook', 'outlook', Icons.mail_outline),
-                              _buildProviderButton('Yahoo', 'yahoo', Icons.alternate_email),
-                              _buildProviderButton('Custom', 'custom', Icons.settings),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Account form
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            children: [
-                              if (_selectedProvider == 'gmail') ...[
-                                const Text(
-                                  'Gmail Setup',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 8),
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.blue.shade200),
-                                  ),
-                                  child: const Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '🔐 Sign in with Google OAuth',
-                                        style: TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      SizedBox(height: 4),
-                                      Text(
-                                        'Tap "Sign in with Google" below to securely connect your Gmail account using Google\'s official authentication.',
-                                        style: TextStyle(fontSize: 13),
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        'Note: If sign-in fails, ensure you have a valid Google account and internet connection.',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton.icon(
-                                  onPressed: emailProvider.isLoading ? null : _signInWithGoogle,
-                                  icon: const Icon(Icons.login),
-                                  label: const Text('Sign in with Google'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(double.infinity, 50),
-                                  ),
-                                ),
-                              ] else if (_selectedProvider == 'outlook' || _selectedProvider == 'yahoo') ...[
-                                _buildTextField(
-                                  controller: _emailController,
-                                  label: 'Email',
-                                  keyboardType: TextInputType.emailAddress,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your email';
-                                    }
-                                    if (!value.contains('@')) {
-                                      return 'Please enter a valid email';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                                _buildTextField(
-                                  controller: _passwordController,
-                                  label: 'Password',
-                                  obscureText: true,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your password';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                              ] else ...[
-                                // Custom email configuration
-                                _buildTextField(
-                                  controller: _nameController,
-                                  label: 'Display Name',
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter a display name';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                                _buildTextField(
-                                  controller: _emailController,
-                                  label: 'Email',
-                                  keyboardType: TextInputType.emailAddress,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your email';
-                                    }
-                                    if (!value.contains('@')) {
-                                      return 'Please enter a valid email';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                                _buildTextField(
-                                  controller: _passwordController,
-                                  label: 'Password',
-                                  obscureText: true,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your password';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'IMAP Settings',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 3,
-                                      child: _buildTextField(
-                                        controller: _imapServerController,
-                                        label: 'IMAP Server',
-                                        validator: (value) {
-                                          if (value == null || value.isEmpty) {
-                                            return 'Required';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _buildTextField(
-                                        controller: _imapPortController,
-                                        label: 'Port',
-                                        keyboardType: TextInputType.number,
-                                        validator: (value) {
-                                          if (value == null || value.isEmpty) {
-                                            return 'Required';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'SMTP Settings',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 3,
-                                      child: _buildTextField(
-                                        controller: _smtpServerController,
-                                        label: 'SMTP Server',
-                                        validator: (value) {
-                                          if (value == null || value.isEmpty) {
-                                            return 'Required';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _buildTextField(
-                                        controller: _smtpPortController,
-                                        label: 'Port',
-                                        keyboardType: TextInputType.number,
-                                        validator: (value) {
-                                          if (value == null || value.isEmpty) {
-                                            return 'Required';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Checkbox(
-                                      value: _isSSL,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _isSSL = value ?? true;
-                                        });
-                                      },
-                                    ),
-                                    const Text('Use SSL/TLS'),
-                                  ],
-                                ),
-                              ],
-
-                              const SizedBox(height: 24),
-
-                              // Action buttons (hide for Gmail since it uses OAuth button above)
-                              if (_selectedProvider != 'gmail') ...[
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('Cancel'),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Expanded(
-                                      child: ElevatedButton(
-                                        onPressed: emailProvider.isLoading ? null : _addAccount,
-                                        child: emailProvider.isLoading
-                                            ? const CircularProgressIndicator()
-                                            : const Text('Add Account'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ] else ...[
-                                // Just cancel button for Gmail
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Cancel'),
-                                  ),
-                                ),
-                              ],
-
-                              if (emailProvider.error != null) ...[
-                                const SizedBox(height: 16),
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.errorContainer,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.error_outline,
-                                        color: Theme.of(context).colorScheme.onErrorContainer,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          emailProvider.error!,
-                                          style: TextStyle(
-                                            color: Theme.of(context).colorScheme.onErrorContainer,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+  /// Builds the UI for selecting the email provider.
+  Widget _buildProviderSelection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Choose your email provider:',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _buildProviderCard(
+                'gmail',
+                'Gmail',
+                Icons.email,
+                Colors.red,
               ),
             ),
-          );
-        },
-      ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildProviderCard(
+                'outlook',
+                'Outlook',
+                Icons.mail_outline,
+                Colors.blue,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildProviderCard(
+                'yahoo',
+                'Yahoo',
+                Icons.alternate_email,
+                Colors.purple,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildProviderCard(
+                'custom',
+                'Other',
+                Icons.settings,
+                Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _buildProviderButton(String label, String value, IconData icon) {
-    final isSelected = _selectedProvider == value;
-    return GestureDetector(
+  /// Builds a provider selection card
+  Widget _buildProviderCard(String provider, String name, IconData icon, Color color) {
+    final isSelected = _selectedProvider == provider;
+
+    return InkWell(
       onTap: () {
         setState(() {
-          _selectedProvider = value;
+          _selectedProvider = provider;
         });
       },
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.surface,
           border: Border.all(
-            color: isSelected
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.outline,
+            color: isSelected ? color : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
           ),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
+          color: isSelected ? color.withValues(alpha: 0.1) : null,
         ),
         child: Column(
           children: [
             Icon(
               icon,
-              color: isSelected
-                  ? Theme.of(context).colorScheme.onPrimary
-                  : Theme.of(context).colorScheme.onSurface,
+              size: 32,
+              color: isSelected ? color : Colors.grey.shade600,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
-              label,
+              name,
               style: TextStyle(
-                color: isSelected
-                    ? Theme.of(context).colorScheme.onPrimary
-                    : Theme.of(context).colorScheme.onSurface,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected ? color : Colors.grey.shade700,
               ),
             ),
           ],
@@ -423,6 +205,258 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     );
   }
 
+  /// Builds the form for entering account details.
+  Widget _buildAccountForm(provider.EmailProvider emailProvider) {
+    if (_selectedProvider == 'gmail') {
+      return _buildGmailForm(emailProvider);
+    } else {
+      return _buildManualForm(emailProvider);
+    }
+  }
+
+  /// Builds Gmail sign-in form
+  Widget _buildGmailForm(provider.EmailProvider emailProvider) {
+    return Column(
+      children: [
+        const SizedBox(height: 32),
+        Icon(
+          Icons.email,
+          size: 64,
+          color: Colors.red,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Sign in with Gmail',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Tap the button below to sign in with your Google account',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: emailProvider.isLoading ? null : _signInWithGoogle,
+            icon: const Icon(Icons.login),
+            label: emailProvider.isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Sign in with Google'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+        if (emailProvider.error != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    emailProvider.error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Builds manual configuration form
+  Widget _buildManualForm(provider.EmailProvider emailProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        _buildTextField(
+          controller: _nameController,
+          label: 'Display Name',
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter your name';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildTextField(
+          controller: _emailController,
+          label: 'Email Address',
+          keyboardType: TextInputType.emailAddress,
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter your email address';
+            }
+            if (!value.contains('@') || !value.contains('.')) {
+              return 'Please enter a valid email address';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildTextField(
+          controller: _passwordController,
+          label: 'Password',
+          obscureText: true,
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter your password';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Server Settings',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: _buildTextField(
+                controller: _imapServerController,
+                label: 'IMAP Server',
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Required';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildTextField(
+                controller: _imapPortController,
+                label: 'Port',
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Required';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: _buildTextField(
+                controller: _smtpServerController,
+                label: 'SMTP Server',
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Required';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildTextField(
+                controller: _smtpPortController,
+                label: 'Port',
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Required';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        CheckboxListTile(
+          title: const Text('Use SSL/TLS'),
+          value: _isSSL,
+          onChanged: (value) {
+            setState(() {
+              _isSSL = value ?? true;
+            });
+          },
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: emailProvider.isLoading ? null : _addAccount,
+            child: emailProvider.isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Add Account'),
+          ),
+        ),
+        if (emailProvider.error != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    emailProvider.error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Builds a text field widget.
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -432,22 +466,26 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   }) {
     return TextFormField(
       controller: controller,
+      validator: validator,
       obscureText: obscureText,
       keyboardType: keyboardType,
-      validator: validator,
       decoration: InputDecoration(
         labelText: label,
-        border: const OutlineInputBorder(),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        filled: true,
+        fillColor: Theme.of(context).colorScheme.surface,
       ),
     );
   }
 
-  Future<bool> _signInWithGoogle() async {
+  /// Initiates the Google Sign-In flow.
+  Future<void> _signInWithGoogle() async {
     final emailProvider = context.read<provider.EmailProvider>();
     final success = await emailProvider.signInWithGoogle();
     if (success && mounted) {
       Navigator.pop(context);
-      return true;
     } else if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -456,16 +494,16 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
         ),
       );
     }
-    return success;
   }
 
+  /// Adds the new email account.
   Future<void> _addAccount() async {
     final emailProvider = context.read<provider.EmailProvider>();
     bool success = false;
 
     if (_selectedProvider == 'gmail') {
-      // Gmail uses OAuth, not manual form submission
-      success = await _signInWithGoogle();
+      // Gmail uses the OAuth flow, not a form submission.
+      await _signInWithGoogle();
       return;
     }
 
@@ -497,17 +535,5 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     if (success && mounted) {
       Navigator.pop(context);
     }
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    _imapServerController.dispose();
-    _imapPortController.dispose();
-    _smtpServerController.dispose();
-    _smtpPortController.dispose();
-    super.dispose();
   }
 }

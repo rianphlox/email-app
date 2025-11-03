@@ -10,11 +10,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:email_app/main.dart';
 
 void main() {
-  testWidgets('Email app smoke test', (WidgetTester tester) async {
+  testWidgets('QMail app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const ReadifyApp());
+    await tester.pumpWidget(const QMailApp());
 
     // Verify that our app starts with welcome screen or inbox.
-    expect(find.text('Readify'), findsOneWidget);
+    expect(find.text('QMail'), findsOneWidget);
   });
 }

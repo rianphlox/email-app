@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:open_file/open_file.dart';
 import '../models/email_message.dart';
-import '../services/gmail_email_renderer.dart';
+import '../services/email_categorizer.dart';
+import '../services/html_email_renderer.dart';
 
 class EmailDetailScreen extends StatelessWidget {
   final EmailMessage message;
 
-  const EmailDetailScreen({Key? key, required this.message}) : super(key: key);
+  const EmailDetailScreen({super.key, required this.message});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Email'),
+        title: Text(message.subject.isNotEmpty ? message.subject : 'No Subject'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           PopupMenuButton<String>(
@@ -66,88 +66,7 @@ class EmailDetailScreen extends StatelessWidget {
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Email header
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Subject
-                    Text(
-                      message.subject,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // From
-                    _buildInfoRow(
-                      'From:',
-                      message.from,
-                      Icons.person,
-                    ),
-
-                    // To
-                    _buildInfoRow(
-                      'To:',
-                      message.to.join(', '),
-                      Icons.email,
-                    ),
-
-                    // CC (if present)
-                    if (message.cc != null && message.cc!.isNotEmpty)
-                      _buildInfoRow(
-                        'CC:',
-                        message.cc!.join(', '),
-                        Icons.copy,
-                      ),
-
-                    // Date
-                    _buildInfoRow(
-                      'Date:',
-                      _formatDateTime(message.date),
-                      Icons.access_time,
-                    ),
-
-                    // Attachments (if present)
-                    if (message.attachments != null && message.attachments!.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      const Divider(),
-                      Row(
-                        children: [
-                          const Icon(Icons.attach_file),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Attachments (${message.attachments!.length})',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: message.attachments!
-                            .map((attachment) => _buildAttachmentChip(attachment))
-                            .toList(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Email body - Gmail-style rendering
-            GmailEmailRenderer.renderEmail(message, context),
-          ],
-        ),
+        child: _buildEmailContent(context),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _replyToEmail(context),
@@ -156,98 +75,246 @@ class EmailDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoRow(String label, String value, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Row(
+  Widget _buildEmailContent(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Email header
+        _buildEmailHeader(context),
+
+        const SizedBox(height: 16),
+
+        // Email body
+        _buildEmailBody(context),
+
+        const SizedBox(height: 20),
+
+        // Attachments (if any)
+        if (message.attachments?.isNotEmpty == true) _buildAttachments(context),
+      ],
+    );
+  }
+
+  Widget _buildEmailHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 8),
+          // Subject
           Text(
-            label,
-            style: const TextStyle(
+            message.subject.isNotEmpty ? message.subject : 'No Subject',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
-              fontSize: 14,
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: SelectableText(
-              value,
-              style: const TextStyle(fontSize: 14),
+
+          const SizedBox(height: 12),
+
+          // From
+          Row(
+            children: [
+              Icon(
+                Icons.person,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'From: ',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  message.from,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // To
+          if (message.to.isNotEmpty) ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.send,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'To: ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    message.to.join(', '),
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 8),
+          ],
+
+          // Date and Category
+          Row(
+            children: [
+              Icon(
+                Icons.access_time,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _formatDate(message.date),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getCategoryColor(message.category).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  EmailCategorizer.getCategoryDisplayName(message.category),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: _getCategoryColor(message.category),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAttachmentChip(EmailAttachment attachment) {
-    return ActionChip(
-      avatar: Icon(_getFileIcon(attachment.mimeType)),
-      label: Text(
-        attachment.name,
-        style: const TextStyle(fontSize: 12),
+  Widget _buildEmailBody(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+        ),
       ),
-      onPressed: () => _openAttachment(attachment),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: HtmlEmailRenderer().renderEmailContent(
+          htmlContent: message.htmlBody,
+          textContent: message.textBody,
+          context: context,
+        ),
+      ),
     );
   }
 
-  IconData _getFileIcon(String mimeType) {
-    if (mimeType.startsWith('image/')) {
-      return Icons.image;
-    } else if (mimeType.startsWith('video/')) {
-      return Icons.video_file;
-    } else if (mimeType.startsWith('audio/')) {
-      return Icons.audio_file;
-    } else if (mimeType.contains('pdf')) {
-      return Icons.picture_as_pdf;
-    } else if (mimeType.contains('document') || mimeType.contains('msword')) {
-      return Icons.description;
-    } else if (mimeType.contains('spreadsheet') || mimeType.contains('excel')) {
-      return Icons.table_chart;
-    } else if (mimeType.contains('presentation') || mimeType.contains('powerpoint')) {
-      return Icons.slideshow;
+  Widget _buildAttachments(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Attachments',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...message.attachments?.map((attachment) =>
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.attach_file,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    attachment.name,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                Text(
+                  '${(attachment.size / 1024).toStringAsFixed(1)} KB',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ) ?? [],
+      ],
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final emailDate = DateTime(date.year, date.month, date.day);
+
+    if (emailDate == today) {
+      // Today - show time
+      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    } else if (emailDate == today.subtract(const Duration(days: 1))) {
+      // Yesterday
+      return 'Yesterday';
+    } else if (date.year == now.year) {
+      // This year - show month and day
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${months[date.month - 1]} ${date.day}';
     } else {
-      return Icons.attach_file;
+      // Different year - show full date
+      return '${date.day}/${date.month}/${date.year}';
     }
   }
 
-  String _formatDateTime(DateTime dateTime) {
-    final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-
-    final month = months[dateTime.month - 1];
-    final day = dateTime.day;
-    final year = dateTime.year;
-    final hour = dateTime.hour;
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    final ampm = hour >= 12 ? 'PM' : 'AM';
-    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
-
-    return '$month $day, $year at $displayHour:$minute $ampm';
-  }
-
-  void _openAttachment(EmailAttachment attachment) async {
-    if (attachment.localPath != null) {
-      await OpenFile.open(attachment.localPath!);
-    } else {
-      // TODO: Download attachment first
-      print('Attachment download not implemented yet');
+  Color _getCategoryColor(EmailCategory category) {
+    switch (category) {
+      case EmailCategory.primary:
+        return Colors.blue;
+      case EmailCategory.promotions:
+        return Colors.orange;
+      case EmailCategory.social:
+        return Colors.green;
+      case EmailCategory.updates:
+        return Colors.purple;
     }
   }
+
 
   void _replyToEmail(BuildContext context) {
     // TODO: Navigate to compose screen with reply data
-    print('Reply functionality not implemented yet');
+    debugPrint('Reply functionality not implemented yet');
   }
 
   void _forwardEmail(BuildContext context) {
     // TODO: Navigate to compose screen with forward data
-    print('Forward functionality not implemented yet');
+    debugPrint('Forward functionality not implemented yet');
   }
 
   void _deleteEmail(BuildContext context) {

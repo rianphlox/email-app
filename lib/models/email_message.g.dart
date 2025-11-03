@@ -32,13 +32,14 @@ class EmailMessageAdapter extends TypeAdapter<EmailMessage> {
       folder: fields[12] as EmailFolder,
       attachments: (fields[13] as List?)?.cast<EmailAttachment>(),
       uid: fields[14] as int,
+      category: fields[15] as EmailCategory,
     );
   }
 
   @override
   void write(BinaryWriter writer, EmailMessage obj) {
     writer
-      ..writeByte(15)
+      ..writeByte(16)
       ..writeByte(0)
       ..write(obj.messageId)
       ..writeByte(1)
@@ -68,7 +69,9 @@ class EmailMessageAdapter extends TypeAdapter<EmailMessage> {
       ..writeByte(13)
       ..write(obj.attachments)
       ..writeByte(14)
-      ..write(obj.uid);
+      ..write(obj.uid)
+      ..writeByte(15)
+      ..write(obj.category);
   }
 
   @override
@@ -188,6 +191,55 @@ class EmailFolderAdapter extends TypeAdapter<EmailFolder> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EmailFolderAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class EmailCategoryAdapter extends TypeAdapter<EmailCategory> {
+  @override
+  final int typeId = 5;
+
+  @override
+  EmailCategory read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return EmailCategory.primary;
+      case 1:
+        return EmailCategory.promotions;
+      case 2:
+        return EmailCategory.social;
+      case 3:
+        return EmailCategory.updates;
+      default:
+        return EmailCategory.primary;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, EmailCategory obj) {
+    switch (obj) {
+      case EmailCategory.primary:
+        writer.writeByte(0);
+        break;
+      case EmailCategory.promotions:
+        writer.writeByte(1);
+        break;
+      case EmailCategory.social:
+        writer.writeByte(2);
+        break;
+      case EmailCategory.updates:
+        writer.writeByte(3);
+        break;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EmailCategoryAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }

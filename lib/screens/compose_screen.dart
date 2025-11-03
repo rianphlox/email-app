@@ -9,11 +9,11 @@ class ComposeScreen extends StatefulWidget {
   final String? initialBody;
 
   const ComposeScreen({
-    Key? key,
+    super.key,
     this.replyTo,
     this.subject,
     this.initialBody,
-  }) : super(key: key);
+  });
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -27,7 +27,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final _subjectController = TextEditingController();
   final _bodyController = TextEditingController();
 
-  List<String> _attachmentPaths = [];
+  final List<String> _attachmentPaths = [];
   bool _showCcBcc = false;
 
   @override

@@ -69,6 +69,13 @@ dependencies:
   flutter_html: ^3.0.0-beta.2
   html: ^0.15.4
 
+  # URL launching
+  url_launcher: ^6.3.1
+
+  # Connectivity and background sync
+  connectivity_plus: ^5.0.0
+  workmanager: ^0.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
