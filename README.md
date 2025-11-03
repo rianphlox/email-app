@@ -76,25 +76,43 @@ flutter run -d macos  # or windows/linux
 ## Project Structure
 
 ```
-lib/
-├── main.dart                    # App entry point
-├── models/                      # Data models
-│   ├── email_account.dart       # Email account model
-│   ├── email_message.dart       # Email message model
-│   └── email.dart              # Legacy email model
-├── providers/                   # State management
-│   └── email_provider.dart     # Main email provider
-├── screens/                     # UI screens
-│   ├── inbox_screen.dart       # Main inbox interface
-│   ├── email_detail_screen.dart # Email detail view
-│   └── login_screen.dart       # Authentication screen
-├── services/                    # Business logic
-│   ├── gmail_api_service.dart  # Gmail API integration
-│   ├── gmail_email_renderer.dart # Email rendering engine
-│   ├── auth_service.dart       # Authentication service
-│   └── final_email_service.dart # IMAP/SMTP service
-└── views/                      # UI components
-    └── email_list_screen/      # Email list components
+├── pubspec.yaml               # Defines project dependencies, metadata, and assets.
+├── lib/                         # Main application source code directory.
+│   ├── main.dart                # The entry point of the application; initializes Flutter and sets up the root widget.
+│   ├── models/                  # Contains the data structures and models for the application.
+│   │   ├── email_account.dart   # Model for representing a user's email account.
+│   │   ├── email_account.g.dart # Auto-generated file for JSON serialization/deserialization.
+│   │   ├── email_message.dart   # Model for representing a single email message.
+│   │   ├── email_message.g.dart # Auto-generated file for JSON serialization/deserialization.
+│   │   ├── pending_operation.dart # Model for tracking pending background operations like sending an email.
+│   │   └── pending_operation.g.dart # Auto-generated file for JSON serialization/deserialization.
+│   ├── providers/               # State management logic using the Provider pattern.
+│   │   └── email_provider.dart  # Manages the application's state for emails, accounts, and user interactions.
+│   ├── screens/                 # UI widgets that represent full screens in the app.
+│   │   ├── add_account_screen.dart # Screen for users to add a new email account.
+│   │   ├── compose_screen.dart  # Screen for composing and sending new emails.
+│   │   ├── email_detail_screen.dart # Screen to display the full content of a selected email.
+│   │   └── inbox_screen.dart    # The main screen that displays the list of emails in the inbox.
+│   ├── services/                # Contains business logic, API interactions, and other core functionalities.
+│   │   ├── auth_service.dart    # Handles user authentication, including Google Sign-In.
+│   │   ├── connectivity_manager.dart # Monitors the device's network connectivity status.
+│   │   ├── email_categorizer.dart # Service to categorize emails (e.g., Primary, Social).
+│   │   ├── final_email_service.dart # Core service for handling email protocols like IMAP/SMTP.
+│   │   ├── gmail_api_service.dart # Service for interacting specifically with the Gmail API.
+│   │   ├── gmail_email_renderer.dart # Renders Gmail-specific content and formatting.
+│   │   ├── google_auth_client.dart # An HTTP client that automatically adds authentication headers for Google API requests.
+│   │   ├── html_email_renderer.dart # Service to render standard HTML email content safely.
+│   │   └── operation_queue.dart # Manages a queue of asynchronous tasks to ensure they are executed sequentially.
+│   └── utils/                   # Utility functions, helpers, and constants.
+│       └── constants.dart       # Application-wide constants and configuration values.
+├── test/                        # Contains all the automated tests for the application.
+│   └── widget_test.dart         # Example widget tests to ensure UI components work as expected.
+├── android/                     # Android-specific project files and configurations.
+├── ios/                         # iOS-specific project files and configurations.
+├── web/                         # Web-specific project files and configurations.
+├── macos/                       # macOS-specific project files and configurations.
+├── linux/                       # Linux-specific project files and configurations.
+└── windows/                     # Windows-specific project files and configurations.
 ```
 
 ## Key Technologies
