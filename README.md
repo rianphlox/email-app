@@ -169,4 +169,4 @@ For support and questions, please open an issue on the GitHub repository:
 
 ---
 
-Built with ❤️ using Flutter
+Built using Flutter
