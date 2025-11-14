@@ -17,47 +17,122 @@ void main() async {
 ///
 /// This widget sets up the entire application, including the theme,
 /// state management, and initial screen.
-class QMailApp extends StatelessWidget {
+class QMailApp extends StatefulWidget {
   /// Creates a new instance of the QMailApp.
   const QMailApp({super.key});
 
   @override
+  State<QMailApp> createState() => _QMailAppState();
+}
+
+class _QMailAppState extends State<QMailApp> {
+  EmailProvider? _emailProvider;
+  bool _isInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Create and initialize the email provider
+    final provider = EmailProvider();
+    await provider.initialize();
+
+    if (mounted) {
+      setState(() {
+        _emailProvider = provider;
+        _isInitialized = true;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Use ChangeNotifierProvider to manage the application's state.
-    // The EmailProvider is created and initialized here.
-    return ChangeNotifierProvider(
-      create: (context) => EmailProvider()..initialize(),
+    // Show loading screen until provider is initialized
+    if (!_isInitialized || _emailProvider == null) {
+      return MaterialApp(
+        title: 'QMail - Email Client',
+        debugShowCheckedModeBanner: false,
+        theme: _buildTheme(Brightness.light),
+        darkTheme: _buildTheme(Brightness.dark),
+        themeMode: ThemeMode.system,
+        home: const _SplashScreen(),
+      );
+    }
+
+    // Use ChangeNotifierProvider with the already-initialized provider
+    return ChangeNotifierProvider.value(
+      value: _emailProvider!,
       child: MaterialApp(
         title: 'QMail - Email Client',
         debugShowCheckedModeBanner: false,
-        // Define the light theme for the application.
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF6366F1),
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            centerTitle: true,
-            elevation: 0,
-          ),
-        ),
-        // Define the dark theme for the application.
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF6366F1),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            centerTitle: true,
-            elevation: 0,
-          ),
-        ),
-        // Use the system's theme mode (light or dark).
+        theme: _buildTheme(Brightness.light),
+        darkTheme: _buildTheme(Brightness.dark),
         themeMode: ThemeMode.system,
-        // Set the initial screen of the application to the InboxScreen.
         home: const InboxScreen(),
+      ),
+    );
+  }
+
+  ThemeData _buildTheme(Brightness brightness) {
+    return ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF6366F1),
+        brightness: brightness,
+      ),
+      useMaterial3: true,
+      appBarTheme: const AppBarTheme(
+        centerTitle: true,
+        elevation: 0,
+      ),
+    );
+  }
+}
+
+/// Splash screen shown while the app initializes
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.email,
+              size: 80,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'QMail',
+              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Smart Email Reader',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+            const SizedBox(height: 40),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              'Loading your emails...',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

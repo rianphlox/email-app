@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/email_provider.dart' as provider;
 import '../models/email_message.dart';
@@ -30,8 +31,76 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   void initState() {
     super.initState();
     _tabController = TabController(length: _categories.length, vsync: this);
-    // Email fetching is now handled by EmailProvider after Gmail API initialization
-    // This prevents race conditions where fetchEmails() is called before Gmail API is ready
+
+    // Auto-sync emails in background after showing cached emails
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startBackgroundSync();
+    });
+  }
+
+  /// Starts background sync after cached emails are shown
+  void _startBackgroundSync() {
+    final emailProvider = context.read<provider.EmailProvider>();
+
+    // Only sync if we have accounts
+    if (emailProvider.accounts.isNotEmpty) {
+      // Small delay to let the UI render cached emails first
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          emailProvider.syncEmails();
+        }
+      });
+    }
+  }
+
+  /// Handles pull-to-refresh with Gmail-like UX
+  Future<void> _handleRefresh() async {
+    if (!mounted) return;
+
+    // Get all context-dependent values before async operations
+    final emailProvider = context.read<provider.EmailProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
+
+    try {
+      // Provide haptic feedback like Gmail
+      await HapticFeedback.lightImpact();
+
+      // Show a brief loading state
+      messenger.hideCurrentSnackBar();
+
+      // Sync emails
+      await emailProvider.syncEmails();
+
+      // Show success feedback
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text('Emails refreshed'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // Show error feedback
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Failed to refresh: ${e.toString()}'),
+            duration: const Duration(seconds: 3),
+            backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -180,24 +249,53 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
       drawer: _buildDrawer(),
       body: Consumer<provider.EmailProvider>(
         builder: (context, emailProvider, child) {
+          // PRIORITY 1: Always show cached emails immediately if available (even without accounts)
+          if (emailProvider.messages.isNotEmpty) {
+            return Stack(
+            children: [
+              _buildCategorizedInbox(emailProvider),
+              // Show subtle loading indicator during background sync
+              if (emailProvider.isLoading)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(
+                    backgroundColor: Colors.transparent,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+            ],
+          );
+          }
+
+          // PRIORITY 2: Show welcome screen only if no accounts AND no cached emails
           if (emailProvider.accounts.isEmpty) {
             return _buildWelcomeScreen();
           }
 
-          if (emailProvider.isLoading && emailProvider.messages.isEmpty) {
+          // PRIORITY 3: Show loading when we have accounts but no cached emails yet
+          if (emailProvider.isLoading) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (emailProvider.error != null && emailProvider.messages.isEmpty) {
+          // PRIORITY 4: Show error only if we have accounts but no cached emails and there's an error
+          if (emailProvider.error != null) {
             return _buildErrorState(emailProvider.error!);
           }
 
-          return _buildCategorizedInbox(emailProvider);
+          // PRIORITY 5: Empty state with quick action to sync
+          return _buildEmptyInbox(emailProvider);
         },
       ),
       floatingActionButton: Consumer<provider.EmailProvider>(
         builder: (context, emailProvider, child) {
-          if (emailProvider.accounts.isEmpty) return const SizedBox();
+          // Show compose button if we have accounts OR cached emails (offline mode)
+          if (emailProvider.accounts.isEmpty && emailProvider.messages.isEmpty) {
+            return const SizedBox();
+          }
           return FloatingActionButton(
             onPressed: () {
               Navigator.push(
@@ -217,7 +315,10 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   Widget _buildDrawer() {
     return Consumer<provider.EmailProvider>(
       builder: (context, emailProvider, child) {
-        if (emailProvider.accounts.isEmpty) return _buildEmptyDrawer();
+        // Show empty drawer only if no accounts AND no cached emails
+        if (emailProvider.accounts.isEmpty && emailProvider.messages.isEmpty) {
+          return _buildEmptyDrawer();
+        }
 
         return Drawer(
           child: Column(
@@ -244,7 +345,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          emailProvider.currentAccount?.name ?? 'User',
+                          emailProvider.currentAccount?.name ?? 'Offline Mode',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onPrimary,
                             fontSize: 18,
@@ -252,7 +353,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                           ),
                         ),
                         Text(
-                          emailProvider.currentAccount?.email ?? '',
+                          emailProvider.currentAccount?.email ?? 'Viewing cached emails',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.8),
                             fontSize: 14,
@@ -291,6 +392,12 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                       'Trash',
                       Icons.delete,
                       EmailFolder.trash,
+                      emailProvider,
+                    ),
+                    _buildFolderTile(
+                      'Spam',
+                      Icons.report,
+                      EmailFolder.spam,
                       emailProvider,
                     ),
                     const Divider(),
@@ -583,6 +690,66 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
     );
   }
 
+  Widget _buildEmptyInbox(provider.EmailProvider emailProvider) {
+    return RefreshIndicator(
+      onRefresh: _handleRefresh,
+      // Gmail-style refresh indicator styling
+      displacement: 50.0,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      color: Theme.of(context).colorScheme.primary,
+      strokeWidth: 2.5,
+      triggerMode: RefreshIndicatorTriggerMode.onEdge,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        children: [
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.inbox,
+                      size: 80,
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'No emails found',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Pull down to refresh or sync your emails',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        await emailProvider.syncEmails();
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Sync Emails'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAboutDialog() {
     showDialog(
       context: context,
@@ -633,7 +800,8 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
 
   PreferredSizeWidget? _buildTabBar() {
     final emailProvider = context.watch<provider.EmailProvider>();
-    if (emailProvider.accounts.isEmpty) return null;
+    // Show tab bar if we have accounts OR cached messages
+    if (emailProvider.accounts.isEmpty && emailProvider.messages.isEmpty) return null;
 
     return TabBar(
       controller: _tabController,
@@ -697,19 +865,45 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   }
 
   Widget _buildEmptyCategory(EmailCategory category) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+    return RefreshIndicator(
+      onRefresh: _handleRefresh,
+      // Gmail-style refresh indicator styling
+      displacement: 50.0,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      color: Theme.of(context).colorScheme.primary,
+      strokeWidth: 2.5,
+      triggerMode: RefreshIndicatorTriggerMode.onEdge,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         children: [
-          Text(
-            EmailCategorizer.getCategoryIcon(category),
-            style: const TextStyle(fontSize: 48),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No ${EmailCategorizer.getCategoryDisplayName(category).toLowerCase()} emails',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.6,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    EmailCategorizer.getCategoryIcon(category),
+                    style: const TextStyle(fontSize: 48),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No ${EmailCategorizer.getCategoryDisplayName(category).toLowerCase()} emails',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Pull down to refresh',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -719,11 +913,19 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
 
   Widget _buildCategoryEmailList(List<EmailMessage> emails) {
     return RefreshIndicator(
-      onRefresh: () async {
-        await context.read<provider.EmailProvider>().syncEmails();
-      },
+      onRefresh: _handleRefresh,
+      // Gmail-style refresh indicator styling
+      displacement: 50.0,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      color: Theme.of(context).colorScheme.primary,
+      strokeWidth: 2.5,
+      triggerMode: RefreshIndicatorTriggerMode.onEdge,
       child: ListView.builder(
         itemCount: emails.length,
+        // Add physics for better scroll experience like Gmail
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         itemBuilder: (context, index) {
           final message = emails[index];
           final isSelected = _selectedEmails.contains(message.messageId);
@@ -864,9 +1066,9 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
 
                           const SizedBox(height: 2),
 
-                          // Email preview
+                          // Email preview - use optimized preview text
                           Text(
-                            message.textBody,
+                            message.previewText ?? message.textBody,
                             style: TextStyle(
                               fontSize: 13,
                               color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),

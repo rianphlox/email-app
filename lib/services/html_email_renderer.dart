@@ -3,6 +3,10 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import 'package:url_launcher/url_launcher.dart';
+import '../utils/quote_processor.dart';
+import '../utils/attachment_processor.dart';
+import '../models/email_message.dart';
+import '../widgets/webview_email_renderer.dart';
 
 class HtmlEmailRenderer {
   static final HtmlEmailRenderer _instance = HtmlEmailRenderer._internal();
@@ -14,39 +18,85 @@ class HtmlEmailRenderer {
     required String? htmlContent,
     required String? textContent,
     required BuildContext context,
+    bool useDarkMode = false,
+    List<EmailAttachment>? attachments,
   }) {
     if (htmlContent != null && htmlContent.isNotEmpty) {
-      return _renderHtml(htmlContent, context);
+      // Use WebView for complex HTML emails (like the AquaFunded example)
+      if (_shouldUseWebView(htmlContent)) {
+        return ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: 200,
+            maxHeight: 600,
+          ),
+          child: WebViewEmailRenderer(
+            htmlContent: htmlContent,
+            attachments: attachments,
+            useDarkMode: useDarkMode,
+            onLinkTap: _handleLinkTap,
+          ),
+        );
+      } else {
+        return _renderHtml(htmlContent, context, useDarkMode, attachments);
+      }
     } else if (textContent != null && textContent.isNotEmpty) {
-      return _renderPlainText(textContent, context);
+      return _renderPlainText(textContent, context, useDarkMode);
     } else {
       return _renderEmptyContent(context);
     }
   }
 
+  /// Determines if WebView should be used for complex HTML rendering
+  bool _shouldUseWebView(String htmlContent) {
+    // Use WebView for emails with:
+    // - Complex CSS styling
+    // - Images
+    // - Tables with complex layouts
+    // - Background images/colors
+    // - Advanced HTML structure
+
+    final lowerContent = htmlContent.toLowerCase();
+
+    return lowerContent.contains('<style') ||
+           lowerContent.contains('background-image') ||
+           lowerContent.contains('background-color') ||
+           lowerContent.contains('<img') ||
+           lowerContent.contains('<table') ||
+           lowerContent.contains('css') ||
+           lowerContent.contains('font-') ||
+           lowerContent.contains('color:') ||
+           lowerContent.contains('margin:') ||
+           lowerContent.contains('padding:') ||
+           lowerContent.contains('text-align') ||
+           htmlContent.length > 1000; // Complex emails are usually longer
+  }
+
   /// Renders HTML content using flutter_html with security and styling
-  Widget _renderHtml(String htmlContent, BuildContext context) {
-    final sanitizedHtml = _sanitizeHtml(htmlContent);
+  Widget _renderHtml(String htmlContent, BuildContext context, bool useDarkMode, List<EmailAttachment>? attachments) {
+    // Process inline attachments
+    String processedHtml = AttachmentProcessor.processInlineAttachments(
+      htmlContent: htmlContent,
+      attachments: attachments,
+    );
+
+    final sanitizedHtml = _sanitizeHtml(processedHtml, useDarkMode);
 
     return Html(
       data: sanitizedHtml,
-      style: _getHtmlStyles(context),
+      style: _getHtmlStyles(context, useDarkMode),
       onLinkTap: (url, _, __) => _handleLinkTap(url),
     );
   }
 
-  /// Renders plain text content with proper formatting
-  Widget _renderPlainText(String textContent, BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      child: SelectableText(
-        textContent,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          height: 1.6,
-          fontFamily: 'monospace',
-        ),
-      ),
+  /// Renders plain text content with proper formatting and quote processing
+  Widget _renderPlainText(String textContent, BuildContext context, bool useDarkMode) {
+    // Convert plain text with quote processing to HTML
+    final processedHtml = QuoteProcessor.convertTextToHtml(textContent, useDarkMode: useDarkMode);
+
+    return Html(
+      data: processedHtml,
+      style: _getHtmlStyles(context, useDarkMode),
+      onLinkTap: (url, _, __) => _handleLinkTap(url),
     );
   }
 
@@ -76,7 +126,7 @@ class HtmlEmailRenderer {
   }
 
   /// Sanitizes HTML content for security
-  String _sanitizeHtml(String htmlContent) {
+  String _sanitizeHtml(String htmlContent, bool useDarkMode) {
     final document = html_parser.parse(htmlContent);
 
     // Remove dangerous elements
@@ -90,6 +140,11 @@ class HtmlEmailRenderer {
 
     // Clean up links
     _processLinks(document);
+
+    // Inject dark mode styles if needed
+    if (useDarkMode) {
+      _injectDarkModeStyles(document);
+    }
 
     return document.outerHtml;
   }
@@ -160,7 +215,7 @@ class HtmlEmailRenderer {
 
     String cleanStyle = style;
     for (final property in dangerousProperties) {
-      cleanStyle = cleanStyle.replaceAll(RegExp('$property\\s*:[^;]*;?', caseSensitive: false), '');
+      cleanStyle = cleanStyle.replaceAll(RegExp('$property\s*:[^;]*;?', caseSensitive: false), '');
     }
 
     return cleanStyle;
@@ -206,9 +261,31 @@ class HtmlEmailRenderer {
     });
   }
 
+  /// Injects dark mode styles into HTML document
+  void _injectDarkModeStyles(html_dom.Document document) {
+    final head = document.head;
+    if (head != null) {
+      final styleElement = html_dom.Element.tag('style');
+      styleElement.innerHtml = '''
+        * {
+          background: #121212 !important;
+          color: #F3F3F3 !important;
+        }
+        :link, :link * {
+          color: #CCFF33 !important;
+        }
+        :visited, :visited * {
+          color: #BB86FC !important;
+        }
+      ''';
+      head.append(styleElement);
+    }
+  }
+
   /// Defines HTML styles for proper email rendering
-  Map<String, Style> _getHtmlStyles(BuildContext context) {
+  Map<String, Style> _getHtmlStyles(BuildContext context, bool useDarkMode) {
     final theme = Theme.of(context);
+    final textColor = useDarkMode ? Colors.white70 : theme.colorScheme.onSurface;
 
     return {
       'html': Style(
@@ -219,7 +296,7 @@ class HtmlEmailRenderer {
         margin: Margins.all(16),
         padding: HtmlPaddings.zero,
         fontSize: FontSize(theme.textTheme.bodyLarge?.fontSize ?? 16),
-        color: theme.colorScheme.onSurface,
+        color: textColor,
         lineHeight: LineHeight.number(1.6),
         fontFamily: theme.textTheme.bodyLarge?.fontFamily,
       ),
@@ -230,7 +307,7 @@ class HtmlEmailRenderer {
       'h1, h2, h3, h4, h5, h6': Style(
         margin: Margins.only(top: 16, bottom: 12),
         fontWeight: FontWeight.bold,
-        color: theme.colorScheme.onSurface,
+        color: textColor,
       ),
       'h1': Style(fontSize: FontSize(24)),
       'h2': Style(fontSize: FontSize(20)),

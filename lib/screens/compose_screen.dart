@@ -2,17 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/email_provider.dart' as provider;
+import '../models/email_message.dart';
 
 class ComposeScreen extends StatefulWidget {
   final String? replyTo;
   final String? subject;
   final String? initialBody;
+  final EmailMessage? replyToMessage;
+  final EmailMessage? forwardMessage;
+  final bool isReply;
+  final bool isForward;
 
   const ComposeScreen({
     super.key,
     this.replyTo,
     this.subject,
     this.initialBody,
+    this.replyToMessage,
+    this.forwardMessage,
+    this.isReply = false,
+    this.isForward = false,
   });
 
   @override
@@ -33,15 +42,62 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.replyTo != null) {
-      _toController.text = widget.replyTo!;
+
+    // Handle reply functionality
+    if (widget.isReply && widget.replyToMessage != null) {
+      final message = widget.replyToMessage!;
+      _toController.text = message.from;
+      _subjectController.text = message.subject.startsWith('Re:')
+          ? message.subject
+          : 'Re: ${message.subject}';
+
+      // Add original message to body
+      final originalText = message.textBody.length > 500
+          ? '${message.textBody.substring(0, 500)}...'
+          : message.textBody;
+
+      _bodyController.text = '\n\n--- Original Message ---\n'
+          'From: ${message.from}\n'
+          'Date: ${_formatDate(message.date)}\n'
+          'Subject: ${message.subject}\n\n'
+          '$originalText';
     }
-    if (widget.subject != null) {
-      _subjectController.text = widget.subject!;
+
+    // Handle forward functionality
+    else if (widget.isForward && widget.forwardMessage != null) {
+      final message = widget.forwardMessage!;
+      _subjectController.text = message.subject.startsWith('Fwd:')
+          ? message.subject
+          : 'Fwd: ${message.subject}';
+
+      // Add original message to body
+      _bodyController.text = '\n\n--- Forwarded Message ---\n'
+          'From: ${message.from}\n'
+          'To: ${message.to.join(', ')}\n'
+          'Date: ${_formatDate(message.date)}\n'
+          'Subject: ${message.subject}\n\n'
+          '${message.textBody}';
     }
-    if (widget.initialBody != null) {
-      _bodyController.text = widget.initialBody!;
+
+    // Handle legacy parameters
+    else {
+      if (widget.replyTo != null) {
+        _toController.text = widget.replyTo!;
+      }
+      if (widget.subject != null) {
+        _subjectController.text = widget.subject!;
+      }
+      if (widget.initialBody != null) {
+        _bodyController.text = widget.initialBody!;
+      }
     }
+  }
+
+  String _formatDate(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final time = '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    return '${months[date.month - 1]} ${date.day}, ${date.year}, $time';
   }
 
   @override

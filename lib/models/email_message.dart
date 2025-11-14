@@ -74,6 +74,10 @@ class EmailMessage extends HiveObject {
   @HiveField(15)
   EmailCategory category = EmailCategory.primary;
 
+  /// Auto-generated preview text for the email.
+  @HiveField(16)
+  String? previewText;
+
   /// Creates a new instance of the [EmailMessage] class.
   EmailMessage({
     required this.messageId,
@@ -92,6 +96,7 @@ class EmailMessage extends HiveObject {
     this.attachments,
     required this.uid,
     this.category = EmailCategory.primary,
+    this.previewText,
   });
 }
 

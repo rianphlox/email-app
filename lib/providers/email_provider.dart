@@ -11,6 +11,7 @@ import '../services/gmail_api_service.dart';
 import '../services/operation_queue.dart';
 import '../services/connectivity_manager.dart';
 import '../models/pending_operation.dart';
+import '../utils/preview_extractor.dart';
 
 /// A provider class that manages the state of the email application.
 ///
@@ -34,6 +35,7 @@ class EmailProvider extends ChangeNotifier {
   EmailFolder _currentFolder = EmailFolder.inbox;
   bool _isLoading = false;
   String? _error;
+  bool _isInitialized = false;
 
   // In-memory cache for faster email access.
   final Map<String, Map<EmailFolder, List<EmailMessage>>> _accountEmailCache = {};
@@ -58,6 +60,9 @@ class EmailProvider extends ChangeNotifier {
 
   /// The last error that occurred, if any.
   String? get error => _error;
+
+  /// Whether the provider has finished initialization and cached emails are loaded.
+  bool get isInitialized => _isInitialized;
 
   /// Network connectivity status
   bool get isOnline => _connectivityManager.isOnline;
@@ -103,38 +108,29 @@ class EmailProvider extends ChangeNotifier {
     _accountsBox = await Hive.openBox<models.EmailAccount>('accounts');
     _messagesBox = await Hive.openBox<EmailMessage>('messages');
 
+    // Immediately pre-load ALL cached emails into memory for fast access
+    await _preloadAllCachedEmails();
+
     // Load stored accounts from the database.
     _accounts = _accountsBox!.values.toList();
     if (_accounts.isNotEmpty) {
       _currentAccount = _accounts.first;
 
-      // Load cached emails for the current account immediately.
+      // Load emails for current folder immediately (now from fast memory cache)
       _loadAccountCachedEmails(_currentAccount!.id, _currentFolder);
 
-      // Re-initialize the Gmail API service if the current account is a Gmail account.
-      if (_currentAccount!.provider == models.EmailProvider.gmail) {
-        _reinitializeGmailServiceOnStartup();
-      } else {
-        // For non-Gmail accounts, try to sync emails in the background
-        _syncEmailsInBackground();
-      }
+      // Initialize network services in background without blocking UI
+      _initializeNetworkServicesBackground();
+    } else {
+      // Even without accounts, show any cached emails that might exist
+      _loadAllCachedEmails();
     }
 
-    // Initialize operation queue and connectivity manager
-    await _operationQueue.initialize();
-    await _connectivityManager.initialize();
+    // Initialize operation queue and connectivity manager in background
+    _initializeServicesBackground();
 
-    // Set up connectivity change callbacks
-    _connectivityManager.onConnected = () {
-      // When back online, process pending operations
-      _operationQueue.processPendingOperations();
-      notifyListeners();
-    };
-
-    _connectivityManager.onDisconnected = () {
-      notifyListeners();
-    };
-
+    // Mark as initialized
+    _isInitialized = true;
     notifyListeners();
   }
 
@@ -325,26 +321,50 @@ class EmailProvider extends ChangeNotifier {
     return false;
   }
 
-  /// Switches the current email account.
+  /// Switches the current email account and loads its cached emails immediately.
   void switchAccount(models.EmailAccount account) {
+    debugPrint('EmailProvider: Switching to account ${account.email}...');
+
+    // Update current account
     _currentAccount = account;
 
-    // Load cached emails for the new account.
+    // Reset to inbox folder when switching accounts (common UX pattern)
+    _currentFolder = EmailFolder.inbox;
+
+    // Immediately load cached emails for this account and inbox folder
     _loadAccountCachedEmails(account.id, _currentFolder);
+
+    // Update last sync time if available
+    final lastSync = _lastSyncTime[account.id];
+    if (lastSync != null) {
+      debugPrint('EmailProvider: Last sync for ${account.email}: $lastSync');
+    }
+
+    // Notify listeners to update UI immediately
     notifyListeners();
 
-    // Sync emails in the background to get the latest updates.
-    _syncEmailsInBackground();
+    // Start background sync for this account
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_currentAccount?.id == account.id) {
+        _syncEmailsInBackground();
+      }
+    });
   }
 
   /// Switches the current email folder.
   void switchFolder(EmailFolder folder) {
     if (_currentFolder != folder) {
+      debugPrint('EmailProvider: Switching to folder ${folder.name}...');
+
       _currentFolder = folder;
 
       // Load cached emails for the new folder.
       if (_currentAccount != null) {
+        // Load cached emails for current account and new folder
         _loadAccountCachedEmails(_currentAccount!.id, folder);
+      } else {
+        // In offline mode, load all cached emails for this folder
+        _loadAllCachedEmailsForFolder(folder);
       }
       notifyListeners();
 
@@ -563,38 +583,170 @@ class EmailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+
+
   // --- Private Helper Methods ---
 
-  /// Loads cached emails from the Hive database.
+  /// Pre-loads all cached emails into memory for fast access
+  Future<void> _preloadAllCachedEmails() async {
+    try {
+      debugPrint('EmailProvider: Pre-loading all cached emails into memory...');
+
+      final allEmails = _messagesBox?.values.toList() ?? [];
+      debugPrint('EmailProvider: Found ${allEmails.length} total cached emails');
+
+      // Group emails by account and folder for fast lookup
+      for (final email in allEmails) {
+        final accountId = email.accountId;
+        final folder = email.folder;
+
+        // Generate preview text if missing (for existing cached emails)
+        if (email.previewText == null || email.previewText!.isEmpty) {
+          email.previewText = PreviewExtractor.extractPreview(
+            htmlContent: email.htmlBody,
+            textContent: email.textBody,
+            maxLength: 150,
+          );
+          // Save the updated email back to Hive
+          _messagesBox?.put(email.messageId, email);
+        }
+
+        // Initialize nested maps if they don't exist
+        if (!_accountEmailCache.containsKey(accountId)) {
+          _accountEmailCache[accountId] = {};
+        }
+        if (!_accountEmailCache[accountId]!.containsKey(folder)) {
+          _accountEmailCache[accountId]![folder] = [];
+        }
+
+        _accountEmailCache[accountId]![folder]!.add(email);
+      }
+
+      // Sort all cached emails by date (newest first)
+      for (final accountCache in _accountEmailCache.values) {
+        for (final folderEmails in accountCache.values) {
+          folderEmails.sort((a, b) => b.date.compareTo(a.date));
+        }
+      }
+
+      debugPrint('EmailProvider: Cached emails loaded for ${_accountEmailCache.length} accounts');
+    } catch (e) {
+      debugPrint('EmailProvider: Error pre-loading cached emails: $e');
+    }
+  }
+
+  /// Initialize network services in background without blocking startup
+  Future<void> _initializeNetworkServicesBackground() async {
+    try {
+      if (_currentAccount?.provider == models.EmailProvider.gmail) {
+        await _reinitializeGmailServiceOnStartup();
+      } else {
+        // For non-Gmail accounts, try to sync emails in the background
+        _syncEmailsInBackground();
+      }
+    } catch (e) {
+      debugPrint('EmailProvider: Error initializing network services: $e');
+    }
+  }
+
+  /// Initialize operation queue and connectivity manager in background
+  Future<void> _initializeServicesBackground() async {
+    try {
+      await _operationQueue.initialize();
+      await _connectivityManager.initialize();
+
+      // Set up connectivity change callbacks
+      _connectivityManager.onConnected = () {
+        // When back online, process pending operations
+        _operationQueue.processPendingOperations();
+        notifyListeners();
+      };
+
+      _connectivityManager.onDisconnected = () {
+        notifyListeners();
+      };
+    } catch (e) {
+      debugPrint('EmailProvider: Error initializing services: $e');
+    }
+  }
+
+  /// Loads cached emails from the in-memory cache (fast, synchronous).
   void _loadAccountCachedEmails(String accountId, EmailFolder folder) {
     try {
       debugPrint('EmailProvider: Loading cached emails for account $accountId, folder ${folder.name}...');
 
-      // Initialize cache if needed
-      if (!_accountEmailCache.containsKey(accountId)) {
-        _accountEmailCache[accountId] = {};
-      }
-
-      if (!_accountEmailCache[accountId]!.containsKey(folder)) {
-        // Load from Hive storage
-        final storedEmails = _messagesBox?.values
-            .where((email) => email.accountId == accountId && email.folder == folder)
-            .toList() ?? [];
-
-        _accountEmailCache[accountId]![folder] = storedEmails;
-        debugPrint('EmailProvider: Loaded ${storedEmails.length} cached emails from storage');
-      }
-
-      // Update current messages
-      final cachedEmails = _accountEmailCache[accountId]![folder] ?? [];
+      // Get emails from fast in-memory cache
+      final cachedEmails = _accountEmailCache[accountId]?[folder] ?? [];
       _messages = List.from(cachedEmails);
 
-      // Sort by date (newest first)
-      _messages.sort((a, b) => b.date.compareTo(a.date));
+      // Verify account isolation
+      final wrongAccountEmails = _messages.where((email) => email.accountId != accountId).toList();
+      if (wrongAccountEmails.isNotEmpty) {
+        debugPrint('WARNING: Found ${wrongAccountEmails.length} emails from wrong account!');
+        // Filter out emails from wrong accounts as a safety measure
+        _messages = _messages.where((email) => email.accountId == accountId).toList();
+      }
 
-      debugPrint('EmailProvider: Set ${_messages.length} emails for current view');
+      // Verify folder isolation
+      final wrongFolderEmails = _messages.where((email) => email.folder != folder).toList();
+      if (wrongFolderEmails.isNotEmpty) {
+        debugPrint('WARNING: Found ${wrongFolderEmails.length} emails from wrong folder!');
+        // Filter out emails from wrong folders as a safety measure
+        _messages = _messages.where((email) => email.folder == folder).toList();
+      }
+
+      debugPrint('EmailProvider: Set ${_messages.length} emails for current view (account: $accountId, folder: ${folder.name})');
     } catch (e) {
       debugPrint('EmailProvider: Error loading cached emails: $e');
+      _messages = [];
+    }
+  }
+
+  /// Loads all cached emails regardless of account (for offline access).
+  void _loadAllCachedEmails() {
+    try {
+      debugPrint('EmailProvider: Loading all cached emails for offline access...');
+
+      final allEmails = <EmailMessage>[];
+
+      // Collect emails from all accounts and folders
+      for (final accountCache in _accountEmailCache.values) {
+        for (final folderEmails in accountCache.values) {
+          allEmails.addAll(folderEmails);
+        }
+      }
+
+      // Sort by date (newest first)
+      allEmails.sort((a, b) => b.date.compareTo(a.date));
+
+      _messages = allEmails;
+      debugPrint('EmailProvider: Set ${_messages.length} cached emails for offline viewing');
+    } catch (e) {
+      debugPrint('EmailProvider: Error loading all cached emails: $e');
+      _messages = [];
+    }
+  }
+
+  /// Loads cached emails for a specific folder from all accounts (for offline folder switching).
+  void _loadAllCachedEmailsForFolder(EmailFolder folder) {
+    try {
+      debugPrint('EmailProvider: Loading cached emails for folder ${folder.name} from all accounts...');
+
+      final folderEmails = <EmailMessage>[];
+
+      // Collect emails from all accounts for this specific folder
+      for (final accountCache in _accountEmailCache.values) {
+        final emails = accountCache[folder] ?? [];
+        folderEmails.addAll(emails);
+      }
+
+      // Sort by date (newest first)
+      folderEmails.sort((a, b) => b.date.compareTo(a.date));
+
+      _messages = folderEmails;
+      debugPrint('EmailProvider: Set ${_messages.length} cached emails for folder ${folder.name}');
+    } catch (e) {
+      debugPrint('EmailProvider: Error loading cached emails for folder: $e');
       _messages = [];
     }
   }
@@ -646,6 +798,15 @@ class EmailProvider extends ChangeNotifier {
       // Add new emails that don't already exist
       for (final newEmail in newEmails) {
         if (!existingIds.contains(newEmail.messageId)) {
+          // Generate preview text if not already present
+          if (newEmail.previewText == null || newEmail.previewText!.isEmpty) {
+            newEmail.previewText = PreviewExtractor.extractPreview(
+              htmlContent: newEmail.htmlBody,
+              textContent: newEmail.textBody,
+              maxLength: 150,
+            );
+          }
+
           cachedEmails.add(newEmail);
 
           // Also store in Hive
@@ -675,15 +836,12 @@ class EmailProvider extends ChangeNotifier {
         final gmailService = AuthService.getGmailApiService();
         if (gmailService != null) {
           final emails = await gmailService.fetchEmails(
+            accountId: account.email,
             maxResults: limit,
             folder: folder,
           );
 
-          // Set account ID for all emails
-          for (final email in emails) {
-            email.accountId = account.id;
-            email.folder = folder;
-          }
+          // Account ID and folder are now properly set in the Gmail service
 
           return emails;
         }

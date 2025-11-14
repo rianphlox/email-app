@@ -54,6 +54,7 @@ class GmailApiService {
   /// This method can fetch emails from a specific folder and can also be used
   /// with a custom query.
   Future<List<EmailMessage>> fetchEmails({
+    required String accountId,
     int maxResults = 50,
     String query = '',
     EmailFolder folder = EmailFolder.inbox,
@@ -114,7 +115,11 @@ class GmailApiService {
               format: 'full',
             );
 
-            final emailMessage = _convertGmailMessageToEmailMessage(detailedMessage);
+            final emailMessage = _convertGmailMessageToEmailMessage(
+              detailedMessage,
+              accountId: accountId,
+              folder: folder,
+            );
             emailMessage.category = EmailCategorizer.categorizeEmail(emailMessage);
             emails.add(emailMessage);
           } catch (e) {
@@ -189,7 +194,11 @@ class GmailApiService {
   // --- Private Helper Methods ---
 
   /// Converts a [gmail.Message] object to an [EmailMessage] object.
-  EmailMessage _convertGmailMessageToEmailMessage(gmail.Message message) {
+  EmailMessage _convertGmailMessageToEmailMessage(
+    gmail.Message message, {
+    required String accountId,
+    required EmailFolder folder,
+  }) {
     try {
       // Extract headers
       final headers = message.payload?.headers ?? [];
@@ -248,7 +257,7 @@ class GmailApiService {
 
       return EmailMessage(
         messageId: message.id ?? '',
-        accountId: 'gmail', // Will be set by EmailProvider
+        accountId: accountId, // Use actual account ID
         subject: subject,
         from: senderName.isNotEmpty ? senderName : from,
         to: toList,
@@ -258,7 +267,7 @@ class GmailApiService {
         textBody: bodyData['text'] ?? '',
         htmlBody: bodyData['html'],
         isRead: isRead,
-        folder: EmailFolder.inbox, // Will be determined by context
+        folder: folder, // Use actual folder
         uid: message.threadId?.hashCode ?? 0,
         attachments: [], // TODO: Implement attachment extraction
       );
@@ -266,7 +275,7 @@ class GmailApiService {
       debugPrint('Error converting Gmail message: $e');
       return EmailMessage(
         messageId: message.id ?? '',
-        accountId: 'gmail',
+        accountId: accountId,
         subject: 'Error loading message',
         from: 'unknown',
         to: [],
