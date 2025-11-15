@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/email_provider.dart';
 import 'screens/inbox_screen.dart';
+import 'services/oauth_callback_handler.dart';
 
 /// The main entry point of the QMail application.
 ///
@@ -33,6 +34,49 @@ class _QMailAppState extends State<QMailApp> {
   void initState() {
     super.initState();
     _initializeApp();
+    _setupOAuthCallbackHandler();
+  }
+
+  void _setupOAuthCallbackHandler() {
+    OAuthCallbackHandler.instance.setCallbacks(
+      onAccountAdded: (account) async {
+        if (_emailProvider != null) {
+          try {
+            await _emailProvider!.addAccount(account);
+            // Show success message
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Yahoo account ${account.email} added successfully!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            debugPrint('Failed to add account: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to add account: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        }
+      },
+      onError: (error) {
+        debugPrint('OAuth error: $error');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Authentication failed: $error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+    );
   }
 
   Future<void> _initializeApp() async {

@@ -209,6 +209,8 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   Widget _buildAccountForm(provider.EmailProvider emailProvider) {
     if (_selectedProvider == 'gmail') {
       return _buildGmailForm(emailProvider);
+    } else if (_selectedProvider == 'yahoo') {
+      return _buildYahooForm(emailProvider);
     } else {
       return _buildManualForm(emailProvider);
     }
@@ -251,6 +253,78 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                 : const Text('Sign in with Google'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+        if (emailProvider.error != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    emailProvider.error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Builds Yahoo OAuth sign-in form
+  Widget _buildYahooForm(provider.EmailProvider emailProvider) {
+    return Column(
+      children: [
+        const SizedBox(height: 32),
+        Icon(
+          Icons.alternate_email,
+          size: 64,
+          color: Colors.purple,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Sign in with Yahoo',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Tap the button below to sign in with your Yahoo account',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: emailProvider.isLoading ? null : _signInWithYahoo,
+            icon: const Icon(Icons.login),
+            label: emailProvider.isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Sign in with Yahoo'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
               foregroundColor: Colors.white,
             ),
           ),
@@ -496,6 +570,22 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     }
   }
 
+  /// Initiates the Yahoo Sign-In flow.
+  Future<void> _signInWithYahoo() async {
+    final emailProvider = context.read<provider.EmailProvider>();
+    final success = await emailProvider.signInWithYahoo();
+    if (success && mounted) {
+      Navigator.pop(context);
+    } else if (!success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(emailProvider.error ?? 'Failed to sign in with Yahoo'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
   /// Adds the new email account.
   Future<void> _addAccount() async {
     final emailProvider = context.read<provider.EmailProvider>();
@@ -515,10 +605,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
         _passwordController.text,
       );
     } else if (_selectedProvider == 'yahoo') {
-      success = await emailProvider.signInWithYahoo(
-        _emailController.text,
-        _passwordController.text,
-      );
+      success = await emailProvider.signInWithYahoo();
     } else if (_selectedProvider == 'custom') {
       success = await emailProvider.addCustomEmailAccount(
         name: _nameController.text,

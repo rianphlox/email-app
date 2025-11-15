@@ -24,17 +24,11 @@ class HtmlEmailRenderer {
     if (htmlContent != null && htmlContent.isNotEmpty) {
       // Use WebView for complex HTML emails (like the AquaFunded example)
       if (_shouldUseWebView(htmlContent)) {
-        return ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: 200,
-            maxHeight: 600,
-          ),
-          child: WebViewEmailRenderer(
-            htmlContent: htmlContent,
-            attachments: attachments,
-            useDarkMode: useDarkMode,
-            onLinkTap: _handleLinkTap,
-          ),
+        return WebViewEmailRenderer(
+          htmlContent: htmlContent,
+          attachments: attachments,
+          useDarkMode: useDarkMode,
+          onLinkTap: _handleLinkTap,
         );
       } else {
         return _renderHtml(htmlContent, context, useDarkMode, attachments);

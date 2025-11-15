@@ -39,7 +39,7 @@ class _WebViewEmailRendererState extends State<WebViewEmailRenderer> {
 
   void _initializeWebView() {
     _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.disabled) // Security: Disable JavaScript
+      ..setJavaScriptMode(JavaScriptMode.unrestricted) // Enable for scrolling support
       ..setUserAgent('QMail/1.0 (Flutter Email Client)')
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -69,9 +69,42 @@ class _WebViewEmailRendererState extends State<WebViewEmailRenderer> {
     _loadEmailContent();
   }
 
-  void _updateWebViewHeight() {
-    // This would require JavaScript injection which is disabled for security
-    // For now, we'll rely on the container constraints
+  void _updateWebViewHeight() async {
+    try {
+      // Enable natural scrolling without height constraints
+      await _controller.runJavaScript('''
+        (function() {
+          // Remove any height constraints
+          document.body.style.height = 'auto';
+          document.body.style.minHeight = 'auto';
+          document.body.style.maxHeight = 'none';
+          document.body.style.overflow = 'visible';
+
+          document.documentElement.style.height = 'auto';
+          document.documentElement.style.minHeight = 'auto';
+          document.documentElement.style.maxHeight = 'none';
+          document.documentElement.style.overflow = 'visible';
+
+          // Ensure content flows naturally
+          var allElements = document.querySelectorAll('*');
+          for (var i = 0; i < allElements.length; i++) {
+            var element = allElements[i];
+            if (element.style.height === '100%' || element.style.height === '100vh') {
+              element.style.height = 'auto';
+            }
+            if (element.style.minHeight === '100%' || element.style.minHeight === '100vh') {
+              element.style.minHeight = 'auto';
+            }
+          }
+
+          return true;
+        })();
+      ''');
+
+      debugPrint('WebView natural scrolling enabled');
+    } catch (e) {
+      debugPrint('Error enabling WebView scrolling: $e');
+    }
   }
 
   void _loadEmailContent() {
@@ -223,13 +256,19 @@ class _WebViewEmailRendererState extends State<WebViewEmailRenderer> {
 
     String css = '''
       /* QMail Email Renderer Styles */
-      body {
+      html, body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         font-size: 14px;
         line-height: 1.6;
         margin: 16px;
         padding: 0;
         word-wrap: break-word;
+        height: auto !important;
+        min-height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        -webkit-overflow-scrolling: touch;
+        box-sizing: border-box;
       }
 
       /* Image handling */
@@ -415,17 +454,19 @@ class _WebViewEmailRendererState extends State<WebViewEmailRenderer> {
       );
     }
 
-    return Stack(
-      children: [
-        WebViewWidget(controller: _controller),
-        if (_isLoading)
-          Container(
-            color: Theme.of(context).colorScheme.surface,
-            child: const Center(
-              child: CircularProgressIndicator(),
+    return Expanded(
+      child: Stack(
+        children: [
+          WebViewWidget(controller: _controller),
+          if (_isLoading)
+            Container(
+              color: Theme.of(context).colorScheme.surface,
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

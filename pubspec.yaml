@@ -52,6 +52,8 @@ dependencies:
   microsoft_graph_api: ^0.0.14
   googleapis: ^13.2.0
   googleapis_auth: ^1.6.0
+  oauth2: ^2.0.2
+  crypto: ^3.0.3
 
   # Local storage
   hive: ^2.2.3

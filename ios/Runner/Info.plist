@@ -45,5 +45,17 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- URL Scheme for OAuth callback -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>qmail.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>qmail</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

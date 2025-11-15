@@ -41,6 +41,12 @@ class EmailProvider extends ChangeNotifier {
   final Map<String, Map<EmailFolder, List<EmailMessage>>> _accountEmailCache = {};
   final Map<String, DateTime> _lastSyncTime = {};
 
+  // Search functionality
+  bool _isSearching = false;
+  String _searchQuery = '';
+  List<EmailMessage> _searchResults = [];
+  List<EmailMessage> _originalMessages = [];
+
   // --- Public Properties ---
 
   /// A list of all the email accounts added to the application.
@@ -72,6 +78,10 @@ class EmailProvider extends ChangeNotifier {
   /// Operation queue status
   bool get hasPendingOperations => _operationQueue.hasPendingOperations;
   int get pendingOperationsCount => _operationQueue.pendingOperations.length;
+
+  /// Search functionality status
+  bool get isSearching => _isSearching;
+  String get searchQuery => _searchQuery;
 
   /// Initializes the email provider.
   ///
@@ -144,6 +154,30 @@ class EmailProvider extends ChangeNotifier {
   void setError(String? error) {
     _error = error;
     notifyListeners();
+  }
+
+  /// Adds an account to the provider.
+  Future<void> addAccount(models.EmailAccount account) async {
+    // Check if the account already exists
+    final existingAccount = _accounts.firstWhere(
+      (existingAcc) => existingAcc.email.toLowerCase() == account.email.toLowerCase(),
+      orElse: () => models.EmailAccount.empty(),
+    );
+
+    if (existingAccount.id.isNotEmpty) {
+      throw Exception('Account ${account.email} is already added.');
+    }
+
+    // Add to storage and memory
+    await _accountsBox!.put(account.id, account);
+    _accounts.add(account);
+    _currentAccount = account;
+    notifyListeners();
+
+    // Fetch emails after a short delay
+    Future.delayed(const Duration(milliseconds: 500), () {
+      fetchEmails();
+    });
   }
 
   /// Signs in the user with their Google account.
@@ -224,13 +258,13 @@ class EmailProvider extends ChangeNotifier {
     return false;
   }
 
-  /// Signs in with a Yahoo account using email and password.
-  Future<bool> signInWithYahoo(String email, String password) async {
+  /// Signs in with a Yahoo account using OAuth.
+  Future<bool> signInWithYahoo() async {
     setLoading(true);
     setError(null);
 
     try {
-      final account = await _authService.signInWithYahoo(email, password);
+      final account = await _authService.signInWithYahoo();
       if (account != null) {
         // Check if the account already exists.
         final existingAccount = _accounts.firstWhere(
@@ -325,6 +359,9 @@ class EmailProvider extends ChangeNotifier {
   void switchAccount(models.EmailAccount account) {
     debugPrint('EmailProvider: Switching to account ${account.email}...');
 
+    // Clear search when switching accounts
+    clearSearch();
+
     // Update current account
     _currentAccount = account;
 
@@ -355,6 +392,9 @@ class EmailProvider extends ChangeNotifier {
   void switchFolder(EmailFolder folder) {
     if (_currentFolder != folder) {
       debugPrint('EmailProvider: Switching to folder ${folder.name}...');
+
+      // Clear search when switching folders
+      clearSearch();
 
       _currentFolder = folder;
 
@@ -595,6 +635,11 @@ class EmailProvider extends ChangeNotifier {
       final allEmails = _messagesBox?.values.toList() ?? [];
       debugPrint('EmailProvider: Found ${allEmails.length} total cached emails');
 
+      if (allEmails.isEmpty) {
+        debugPrint('EmailProvider: No cached emails found in Hive database');
+        return;
+      }
+
       // Group emails by account and folder for fast lookup
       for (final email in allEmails) {
         final accountId = email.accountId;
@@ -630,6 +675,14 @@ class EmailProvider extends ChangeNotifier {
       }
 
       debugPrint('EmailProvider: Cached emails loaded for ${_accountEmailCache.length} accounts');
+
+      // Debug: Print cache contents
+      for (final accountId in _accountEmailCache.keys) {
+        for (final folder in _accountEmailCache[accountId]!.keys) {
+          final emailCount = _accountEmailCache[accountId]![folder]!.length;
+          debugPrint('EmailProvider: Account $accountId, folder ${folder.name}: $emailCount emails');
+        }
+      }
     } catch (e) {
       debugPrint('EmailProvider: Error pre-loading cached emails: $e');
     }
@@ -674,6 +727,9 @@ class EmailProvider extends ChangeNotifier {
   void _loadAccountCachedEmails(String accountId, EmailFolder folder) {
     try {
       debugPrint('EmailProvider: Loading cached emails for account $accountId, folder ${folder.name}...');
+
+      // Debug: Print available accounts in cache
+      debugPrint('EmailProvider: Available account IDs in cache: ${_accountEmailCache.keys.toList()}');
 
       // Get emails from fast in-memory cache
       final cachedEmails = _accountEmailCache[accountId]?[folder] ?? [];
@@ -758,9 +814,20 @@ class EmailProvider extends ChangeNotifier {
     try {
       debugPrint('EmailProvider: Starting background sync for ${_currentAccount!.email}...');
 
-      final gmailService = AuthService.getGmailApiService();
-      if (gmailService == null) {
-        throw Exception('Gmail API service not initialized');
+      // For Gmail accounts, ensure the API service is initialized
+      if (_currentAccount!.provider == models.EmailProvider.gmail) {
+        final gmailService = AuthService.getGmailApiService();
+        if (gmailService == null) {
+          debugPrint('EmailProvider: Gmail API service not initialized, attempting to re-initialize...');
+          await _reinitializeGmailServiceOnStartup();
+
+          // Check again after re-initialization
+          final retryGmailService = AuthService.getGmailApiService();
+          if (retryGmailService == null) {
+            debugPrint('EmailProvider: Failed to re-initialize Gmail API service, skipping sync');
+            return;
+          }
+        }
       }
 
       // Fetch emails for the current folder
@@ -842,13 +909,24 @@ class EmailProvider extends ChangeNotifier {
           );
 
           // Account ID and folder are now properly set in the Gmail service
+          return emails;
+        }
+      } else if (account.provider == models.EmailProvider.yahoo) {
+        // Use Yahoo API service
+        final yahooService = AuthService.getYahooApiService();
+        if (yahooService != null) {
+          final emails = await yahooService.fetchEmails(
+            accountId: account.email,
+            maxResults: limit,
+            folder: folder,
+          );
 
           return emails;
         }
       } else {
-        // Use IMAP service for other providers
-        // For now, return empty list for non-Gmail accounts
-        // TODO: Implement IMAP email fetching
+        // Use IMAP service for other providers (Outlook, custom)
+        // For now, return empty list for non-supported accounts
+        // TODO: Implement IMAP email fetching for Outlook and custom providers
         return [];
       }
     } catch (e) {
@@ -911,6 +989,123 @@ class EmailProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('EmailProvider: Error initializing Gmail API service: $e');
+    }
+  }
+
+  /// Searches emails based on a query string
+  void searchEmails(String query) {
+    if (query.trim().isEmpty) {
+      clearSearch();
+      return;
+    }
+
+    _isSearching = true;
+    _searchQuery = query.trim().toLowerCase();
+
+    // Store original messages if this is the first search
+    if (_originalMessages.isEmpty) {
+      _originalMessages = List.from(_messages);
+    }
+
+    // Perform search across subject, sender, and body
+    _searchResults = _originalMessages.where((email) {
+      final searchableText = [
+        email.subject.toLowerCase(),
+        email.from.toLowerCase(),
+        email.textBody.toLowerCase(),
+        email.htmlBody?.toLowerCase() ?? '',
+        ...email.to.map((to) => to.toLowerCase()),
+      ].join(' ');
+
+      return searchableText.contains(_searchQuery);
+    }).toList();
+
+    // Update the displayed messages
+    _messages = _searchResults;
+
+    debugPrint('EmailProvider: Search for "$_searchQuery" found ${_searchResults.length} results');
+    notifyListeners();
+  }
+
+  /// Clears the current search and shows all emails
+  void clearSearch() {
+    if (_isSearching) {
+      _isSearching = false;
+      _searchQuery = '';
+      _searchResults.clear();
+
+      // Restore original messages
+      if (_originalMessages.isNotEmpty) {
+        _messages = _originalMessages;
+        _originalMessages.clear();
+      }
+
+      debugPrint('EmailProvider: Search cleared, showing all emails');
+      notifyListeners();
+    }
+  }
+
+  /// Forces a complete refresh of all cached emails for all accounts
+  /// This is a troubleshooting method to fix cache issues
+  Future<void> forceRefreshAllAccounts() async {
+    debugPrint('EmailProvider: Force refreshing all accounts...');
+
+    if (_accounts.isEmpty) {
+      debugPrint('EmailProvider: No accounts to refresh');
+      return;
+    }
+
+    setLoading(true);
+
+    for (final account in _accounts) {
+      try {
+        debugPrint('EmailProvider: Force refreshing account ${account.email}...');
+
+        // Switch to this account temporarily to initialize services
+        switchAccount(account);
+
+        // Initialize services based on provider type
+        if (account.provider == models.EmailProvider.gmail) {
+          await _initializeGmailForAccount(account);
+        }
+        // Yahoo and other providers would be added here
+
+        // Force fetch emails for all folders
+        await _forceFetchAllFolders(account);
+
+        debugPrint('EmailProvider: Completed refresh for ${account.email}');
+      } catch (e) {
+        debugPrint('EmailProvider: Error refreshing account ${account.email}: $e');
+      }
+    }
+
+    setLoading(false);
+    debugPrint('EmailProvider: Force refresh completed');
+  }
+
+  /// Initialize Gmail services for a specific account
+  Future<void> _initializeGmailForAccount(models.EmailAccount account) async {
+    try {
+      debugPrint('EmailProvider: Initializing Gmail for ${account.email}...');
+      await _reinitializeGmailServiceOnStartup();
+    } catch (e) {
+      debugPrint('EmailProvider: Failed to initialize Gmail for ${account.email}: $e');
+    }
+  }
+
+  /// Force fetch emails for all folders of an account
+  Future<void> _forceFetchAllFolders(models.EmailAccount account) async {
+    final folders = [EmailFolder.inbox, EmailFolder.sent, EmailFolder.drafts, EmailFolder.trash];
+
+    for (final folder in folders) {
+      try {
+        debugPrint('EmailProvider: Force fetching ${folder.name} for ${account.email}...');
+        final emails = await _fetchEmailsForAccount(account, folder);
+        _mergeEmailsWithCache(account.id, folder, emails);
+        debugPrint('EmailProvider: Fetched ${emails.length} emails from ${folder.name}');
+      } catch (e) {
+        debugPrint('EmailProvider: Error fetching ${folder.name} for ${account.email}: $e');
+      }
     }
   }
 

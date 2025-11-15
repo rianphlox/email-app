@@ -20,6 +20,10 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   late TabController _tabController;
   final Set<String> _selectedEmails = <String>{};
   bool _isSelectionMode = false;
+  bool _isSearchMode = false;
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = '';
 
   final List<EmailCategory> _categories = [
     EmailCategory.primary,
@@ -106,6 +110,8 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -114,11 +120,19 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
     return Scaffold(
       appBar: _isSelectionMode
         ? _buildSelectionAppBar()
-        : AppBar(
-            title: const Text('QMail'),
-            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-            bottom: _buildTabBar(),
-            actions: [
+        : _isSearchMode
+            ? _buildSearchAppBar()
+            : AppBar(
+                title: const Text('QMail'),
+                backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+                bottom: _buildTabBar(),
+                actions: [
+                  // Search icon
+                  IconButton(
+                    icon: const Icon(Icons.search),
+                    onPressed: _enterSearchMode,
+                    tooltip: 'Search emails',
+                  ),
               // Connectivity status indicator
               Consumer<provider.EmailProvider>(
                 builder: (context, emailProvider, child) {
@@ -249,6 +263,31 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
       drawer: _buildDrawer(),
       body: Consumer<provider.EmailProvider>(
         builder: (context, emailProvider, child) {
+          // Show search results info if searching
+          if (emailProvider.isSearching) {
+            return Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Text(
+                    'Found ${emailProvider.messages.length} result${emailProvider.messages.length != 1 ? 's' : ''} for "${emailProvider.searchQuery}"',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Expanded(
+                  child: emailProvider.messages.isNotEmpty
+                      ? _buildCategorizedInbox(emailProvider)
+                      : _buildNoSearchResults(),
+                ),
+              ],
+            );
+          }
+
           // PRIORITY 1: Always show cached emails immediately if available (even without accounts)
           if (emailProvider.messages.isNotEmpty) {
             return Stack(
@@ -431,6 +470,16 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                             builder: (context) => const AddAccountScreen(),
                           ),
                         );
+                      },
+                    ),
+                    // Debug option for fixing cache issues
+                    ListTile(
+                      leading: const Icon(Icons.refresh, color: Colors.orange),
+                      title: const Text('Fix Cache (Debug)'),
+                      subtitle: const Text('Force refresh all accounts'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _forceRefreshCache();
                       },
                     ),
                   ],
@@ -1307,6 +1356,168 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
         return Colors.green;
       case EmailCategory.updates:
         return Colors.purple;
+    }
+  }
+
+  /// Enters search mode
+  void _enterSearchMode() {
+    setState(() {
+      _isSearchMode = true;
+    });
+    // Focus the search field after the build is complete
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocusNode.requestFocus();
+    });
+  }
+
+  /// Exits search mode
+  void _exitSearchMode() {
+    setState(() {
+      _isSearchMode = false;
+      _searchQuery = '';
+    });
+    _searchController.clear();
+    _searchFocusNode.unfocus();
+    // Trigger search with empty query to show all emails
+    _performSearch('');
+  }
+
+  /// Builds the search AppBar similar to Gmail
+  AppBar _buildSearchAppBar() {
+    return AppBar(
+      backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: _exitSearchMode,
+      ),
+      title: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        decoration: InputDecoration(
+          hintText: 'Search in mail',
+          hintStyle: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 15),
+        ),
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurface,
+          fontSize: 16,
+        ),
+        textInputAction: TextInputAction.search,
+        onChanged: _performSearch,
+        onSubmitted: _performSearch,
+      ),
+      actions: [
+        if (_searchController.text.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              _searchController.clear();
+              _performSearch('');
+            },
+            tooltip: 'Clear search',
+          ),
+      ],
+    );
+  }
+
+  /// Performs the email search
+  void _performSearch(String query) {
+    setState(() {
+      _searchQuery = query.trim();
+    });
+
+    // TODO: Implement search logic in EmailProvider
+    final emailProvider = context.read<provider.EmailProvider>();
+    if (query.trim().isEmpty) {
+      // Show all emails when search is cleared
+      emailProvider.clearSearch();
+    } else {
+      // Perform search
+      emailProvider.searchEmails(query.trim());
+    }
+  }
+
+  /// Builds the no search results view
+  Widget _buildNoSearchResults() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.search_off,
+            size: 64,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No emails found',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try different keywords or check your spelling',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Forces a refresh of all cached emails for troubleshooting
+  void _forceRefreshCache() async {
+    final emailProvider = context.read<provider.EmailProvider>();
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Fix Cache'),
+        content: const Text(
+          'This will force refresh all emails for all accounts. This may take a few minutes.\n\nContinue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await emailProvider.forceRefreshAllAccounts();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cache refresh completed!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Cache refresh failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 }

@@ -23,37 +23,35 @@ class EmailDetailScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
+          // Header section that can scroll
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            child: _buildEmailHeader(context),
+          ),
+
+          // Email body - takes remaining space without scroll conflict
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: _buildEmailContent(context),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildEmailBody(context),
             ),
           ),
+
+          // Attachments section (if any) - scrollable
+          if (message.attachments?.isNotEmpty == true)
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              child: SingleChildScrollView(
+                child: _buildAttachments(context),
+              ),
+            ),
+
           _buildActionButtons(context),
         ],
       ),
     );
   }
 
-  Widget _buildEmailContent(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Email header
-        _buildEmailHeader(context),
-
-        const SizedBox(height: 16),
-
-        // Email body
-        _buildEmailBody(context),
-
-        const SizedBox(height: 20),
-
-        // Attachments (if any)
-        if (message.attachments?.isNotEmpty == true) _buildAttachments(context),
-      ],
-    );
-  }
 
   Widget _buildActionButtons(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;

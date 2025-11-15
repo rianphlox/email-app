@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import '../models/email_account.dart';
 import 'gmail_api_service.dart';
+import 'yahoo_api_service.dart';
+import 'yahoo_oauth_service.dart';
 
 /// A service class that handles user authentication for different email providers.
 ///
@@ -27,6 +29,7 @@ class AuthService {
   );
 
   static GmailApiService? _gmailApiService;
+  static YahooApiService? _yahooApiService;
 
   // --- Public Methods ---
 
@@ -94,6 +97,16 @@ class AuthService {
     _gmailApiService = service;
   }
 
+  /// Returns the currently initialized Yahoo API service.
+  static YahooApiService? getYahooApiService() {
+    return _yahooApiService;
+  }
+
+  /// Sets the Yahoo API service.
+  static void setYahooApiService(YahooApiService service) {
+    _yahooApiService = service;
+  }
+
   /// Signs in the user with their Outlook account.
   ///
   /// For production, this should be replaced with a proper OAuth flow.
@@ -102,12 +115,78 @@ class AuthService {
     return null;
   }
 
-  /// Signs in the user with their Yahoo account.
+  /// Signs in the user with their Yahoo account using OAuth2.
   ///
-  /// Yahoo requires an app password for IMAP/SMTP access.
-  Future<EmailAccount?> signInWithYahoo(String email, String password) async {
-    // ... (implementation for Yahoo sign-in)
-    return null;
+  /// This method initiates the Yahoo OAuth flow and returns an EmailAccount
+  /// if successful.
+  Future<EmailAccount?> signInWithYahoo() async {
+    try {
+      final yahooOAuth = YahooOAuthService();
+
+      // Launch OAuth flow
+      final launched = await yahooOAuth.launchOAuthFlow();
+      if (!launched) {
+        throw Exception('Failed to launch Yahoo OAuth flow');
+      }
+
+      // Note: In a real app, you would need to handle the OAuth callback
+      // This is a simplified version for demonstration
+      debugPrint('Yahoo OAuth flow launched. Handle the callback in your app.');
+
+      // For now, return null since we need to handle the OAuth callback
+      // In a production app, you would wait for the callback and get tokens
+      return null;
+
+    } catch (e) {
+      debugPrint('Yahoo sign-in error: $e');
+      throw Exception('Failed to sign in with Yahoo: $e');
+    }
+  }
+
+  /// Completes Yahoo sign-in after OAuth callback.
+  ///
+  /// This should be called when your app receives the OAuth callback.
+  Future<EmailAccount?> completeYahooSignIn(String callbackUrl) async {
+    try {
+      final yahooOAuth = YahooOAuthService();
+
+      // Handle the OAuth callback and get tokens
+      final tokens = await yahooOAuth.handleAuthorizationCallback(callbackUrl);
+      if (tokens == null) {
+        throw Exception('Failed to get tokens from Yahoo');
+      }
+
+      final accessToken = tokens['access_token']!;
+      final refreshToken = tokens['refresh_token']!;
+
+      // Initialize Yahoo API service
+      _yahooApiService = YahooApiService();
+      final connected = await _yahooApiService!.connectWithTokens(
+        accessToken,
+        refreshToken,
+      );
+
+      if (!connected) {
+        throw Exception('Failed to connect to Yahoo Mail API');
+      }
+
+      // Create account (we'll need to get user info from Yahoo API)
+      final account = EmailAccount(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: 'Yahoo User', // TODO: Get actual name from Yahoo API
+        email: 'user@yahoo.com', // TODO: Get actual email from Yahoo API
+        provider: EmailProvider.yahoo,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        lastSync: DateTime.now(),
+      );
+
+      await _storeCredentials(account);
+      return account;
+    } catch (e) {
+      debugPrint('Yahoo sign-in completion error: $e');
+      throw Exception('Failed to complete Yahoo sign-in: $e');
+    }
   }
 
   /// Adds a custom email account with IMAP and SMTP settings.
