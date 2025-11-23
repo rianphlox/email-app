@@ -1,0 +1,111 @@
+- [x] Identified Root Cause: The "loading afresh every time" issue was due to a redundant `syncEmails()` call in `InboxScreen`'s `initState`, which triggered a loading spinner even when cached data was available.
+- [x] Fixed Initial Loading Behavior: Removed the redundant `syncEmails()` call from `InboxScreen`'s `initState`, allowing cached emails to display instantly on app launch.
+- [x] Attempted IMAP IDLE Implementation: Tried to implement IMAP IDLE for real-time updates using `enough_mail`.
+- [x] Discovered `enough_mail` Limitation: Found that the current stable version of `enough_mail` (`2.1.7`) does not support the necessary IDLE features (like `idle()` and `idleStop()`).
+- [x] Reverted IMAP IDLE Changes: Reverted all code changes related to IMAP IDLE in `pubspec.yaml`, `final_email_service.dart`, and `email_provider.dart`.
+- [x] Fixed Structural Corruption: Corrected a critical structural error in `email_provider.dart` where a duplicate class definition and imports were accidentally introduced during previous edits.
+- [x] Fixed `actionable_notification_service.dart` Errors: Corrected `DarwinNotificationAction` constructor usages and `invalid_constant` errors by adjusting to the correct API of `flutter_local_notifications`.
+
+## To Do:
+
+### `lib/providers/email_provider.dart`
+- [ ] Remove unused imports:
+    - `../services/advanced_search_service.dart`
+    - `../services/smart_notification_service.dart`
+- [ ] Remove unused fields/declarations:
+    - `_emailService`
+    - `_maintenanceService`
+    - `_messagesBox`
+    - `_accountEmailCache`
+    - `_lastSyncTime`
+    - `_backgroundSyncTimer`
+    - `_searchResults`
+    - `_originalMessages`
+    - `_conversationManager`
+    - `_conversations`
+    - `_originalConversations`
+    - `_spamResults`
+    - `_messages` (info: prefer_final_fields)
+    - `_currentFolder` (info: prefer_final_fields)
+    - `_isSearching` (info: prefer_final_fields)
+    - `_searchQuery` (info: prefer_final_fields)
+    - `_searchResults` (warning: unused_field)
+    - `_originalMessages` (warning: unused_field)
+    - `_conversationMode` (info: prefer_final_fields)
+    - `_conversations` (info: prefer_final_fields)
+    - `_originalConversations` (warning: unused_field)
+    - `_spamDetectionEnabled` (info: prefer_final_fields)
+- [ ] Resolve `Dead code` at line 293:5
+- [ ] Resolve `unnecessary_null_comparison` and `unnecessary_non_null_assertion` warnings.
+
+### `lib/screens/compose_screen.dart`
+- [ ] Remove unused import:
+    - `../providers/email_provider.dart`
+- [ ] Remove unused field:
+    - `_bodyHtml`
+
+### `lib/screens/inbox_screen.dart`
+- [ ] Remove unused imports:
+    - `../models/conversation.dart`
+    - `../widgets/nudge_widget.dart`
+    - `../services/nudge_service.dart`
+- [ ] Remove unused fields/declarations:
+    - `_searchQuery`
+    - `_startBackgroundSync`
+    - `_buildCategorizedInbox`
+    - `_buildSimpleEmailList`
+    - `_buildConversationView`
+    - `_showSnackBar`
+    - `_showDeleteConfirmationDialog`
+
+### `lib/services/actionable_notification_service.dart`
+- [ ] Remove unused fields/declarations:
+    - `emailCategory` (warning: unused_local_variable)
+- [ ] Resolve `invalid_constant` errors.
+- [ ] Resolve `non_bool_condition` error.
+- [ ] Resolve `unnecessary_brace_in_string_interps` info.
+- [ ] Resolve `undefined_identifier` for `Int64List`.
+
+### `lib/services/advanced_search_service.dart`
+- [ ] Resolve `unintended_html_in_doc_comment` info.
+
+### `lib/services/cache_maintenance_service.dart`
+- [ ] Remove unused import:
+    - `dart:isolate`
+
+### `lib/services/gmail_api_service.dart`
+- [ ] Resolve `unnecessary_brace_in_string_interps` info.
+
+### `lib/services/html_email_renderer.dart`
+- [ ] Resolve `depend_on_referenced_packages` info.
+- [ ] Remove unused import:
+    - `../utils/advanced_quote_processor.dart`
+
+### `lib/services/nudge_service.dart`
+- [ ] Remove unused field:
+    - `_deadlineKeywords`
+- [ ] Resolve `unnecessary_brace_in_string_interps` info.
+
+### `lib/services/offline_manager.dart`
+- [ ] Remove unused imports:
+    - `dart:convert`
+    - `dart:io`
+    - `../models/email_account.dart`
+    - `advanced_search_service.dart`
+
+### `lib/utils/advanced_quote_processor.dart`
+- [ ] Remove unused import:
+    - `dart:convert`
+- [ ] Resolve `unnecessary_brace_in_string_interps` info.
+
+### `lib/widgets/advanced_search_bar.dart`
+- [ ] Remove unused field:
+    - `_showSuggestions`
+
+### `lib/widgets/enhanced_webview_renderer.dart`
+- [ ] Remove unused local variable:
+    - `action`
+- [ ] Remove dead code.
+
+### `lib/database/email_database.dart`
+- [ ] Resolve `avoid_print` info.

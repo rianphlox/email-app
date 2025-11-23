@@ -1,4 +1,5 @@
 import 'package:html/parser.dart' as html_parser;
+import 'advanced_quote_processor.dart';
 
 /// Extracts preview text from email content similar to Thunderbird's PreviewTextExtractor
 class PreviewExtractor {
@@ -11,6 +12,23 @@ class PreviewExtractor {
     String? textContent,
     int maxLength = _defaultMaxLength,
   }) {
+    // Try using advanced quote processor for better preview extraction
+    try {
+      final processedContent = AdvancedQuoteProcessor.processEmailContent(
+        htmlContent ?? textContent ?? '',
+        isHtml: htmlContent != null && htmlContent.isNotEmpty,
+      );
+
+      if (processedContent.previewText.isNotEmpty) {
+        return processedContent.previewText.length <= maxLength
+            ? processedContent.previewText
+            : '${processedContent.previewText.substring(0, maxLength)}...';
+      }
+    } catch (e) {
+      // Fall back to original extraction if advanced processing fails
+    }
+
+    // Fallback to original preview extraction
     String content;
 
     if (htmlContent != null && htmlContent.isNotEmpty) {
@@ -30,7 +48,7 @@ class PreviewExtractor {
       final document = html_parser.parse(htmlContent);
 
       // Remove script and style elements completely
-      document.querySelectorAll('script, style').forEach((element) {
+      document.querySelectorAll('script, style, head, meta, link').forEach((element) {
         element.remove();
       });
 
@@ -40,10 +58,31 @@ class PreviewExtractor {
       // Clean up whitespace
       text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
 
+      // Apply aggressive CSS cleaning to the extracted text
+      text = _aggressiveCssClean(text);
+
       return text;
     } catch (e) {
-      // If HTML parsing fails, treat as plain text
-      return htmlContent.replaceAll(RegExp(r'<[^>]*>'), '');
+      // If HTML parsing fails, clean manually
+      String cleaned = htmlContent;
+
+      // Remove style blocks and content
+      cleaned = cleaned.replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false, dotAll: true), '');
+
+      // Remove script blocks and content
+      cleaned = cleaned.replaceAll(RegExp(r'<script[^>]*>.*?</script>', caseSensitive: false, dotAll: true), '');
+
+      // Remove CSS in style attributes
+      cleaned = cleaned.replaceAll(RegExp(r'style\s*=\s*"[^"]*"'), '');
+      cleaned = cleaned.replaceAll(RegExp(r"style\s*=\s*'[^']*'"), '');
+
+      // Remove all HTML tags
+      cleaned = cleaned.replaceAll(RegExp(r'<[^>]*>'), '');
+
+      // Apply aggressive CSS cleaning
+      cleaned = _aggressiveCssClean(cleaned);
+
+      return cleaned;
     }
   }
 
@@ -158,6 +197,9 @@ class PreviewExtractor {
 
   /// Cleans up preview text by removing unwanted characters and patterns
   static String _cleanPreviewText(String text) {
+    // Apply aggressive CSS cleaning first
+    text = _aggressiveCssClean(text);
+
     // Remove email addresses that might clutter the preview
     text = text.replaceAll(RegExp(r'\S+@\S+\.\S+'), '');
 
@@ -165,24 +207,155 @@ class PreviewExtractor {
     text = text.replaceAll(RegExp(r'[.]{3,}'), '...');
     text = text.replaceAll(RegExp(r'[-]{3,}'), '---');
     text = text.replaceAll(RegExp(r'[=]{3,}'), '===');
+    text = text.replaceAll(RegExp(r'[;]{2,}'), ';');
 
     // Remove common email artifacts
     text = text.replaceAll(RegExp(r'\[cid:[^\]]+\]'), '');
     text = text.replaceAll(RegExp(r'<[^>]*>'), '');
 
-    // Clean up whitespace
+    // Clean up whitespace and special characters
+    text = text.replaceAll(RegExp(r'\s*:\s*'), ': ');
+    text = text.replaceAll(RegExp(r'\s*;\s*'), '; ');
     text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
 
     // Remove very short words that don't add meaning
     final words = text.split(' ');
     final meaningfulWords = words.where((word) {
-      return word.length >= _minWordLength ||
-             word.toLowerCase() == 'i' ||
-             word.toLowerCase() == 'a' ||
-             RegExp(r'^\d+$').hasMatch(word);
+      final cleanWord = word.replaceAll(RegExp(r'[^\w]'), '');
+      return cleanWord.length >= _minWordLength ||
+             cleanWord.toLowerCase() == 'i' ||
+             cleanWord.toLowerCase() == 'a' ||
+             RegExp(r'^\d+$').hasMatch(cleanWord);
     });
 
     return meaningfulWords.join(' ');
+  }
+
+  /// Aggressively cleans CSS and media queries from text content
+  static String _aggressiveCssClean(String text) {
+    // Remove all style blocks and their content
+    text = text.replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false, dotAll: true), '');
+
+    // Remove @media queries completely (more aggressive pattern)
+    text = text.replaceAll(RegExp(r'@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}', caseSensitive: false, dotAll: true), '');
+
+    // Remove all CSS blocks (anything between { }) - multiple passes
+    for (int i = 0; i < 3; i++) {
+      text = text.replaceAll(RegExp(r'\{[^{}]*\}', dotAll: true), ' ');
+    }
+
+    // Remove CSS property patterns (more aggressive)
+    text = text.replaceAll(RegExp(r'[a-z-]+\s*:\s*[^;{}\n]*[;}]', caseSensitive: false), '');
+
+    // Remove @-rules (@import, @charset, @media, etc.)
+    text = text.replaceAll(RegExp(r'@[a-z-]+[^;{]*[;}]', caseSensitive: false), '');
+
+    // Remove CSS selectors and class/id names
+    text = text.replaceAll(RegExp(r'\.[a-z_-][a-z0-9_-]*', caseSensitive: false), '');
+    text = text.replaceAll(RegExp(r'#[a-z_-][a-z0-9_-]*', caseSensitive: false), '');
+
+    // Remove CSS units and values
+    text = text.replaceAll(RegExp(r'\d+(?:px|%|em|rem|pt|pc|in|cm|mm|ex|ch|vw|vh|vmin|vmax|deg|s|ms)\b'), '');
+
+    // Remove hex colors, rgb/rgba values
+    text = text.replaceAll(RegExp(r'#[0-9a-f]{3,8}\b', caseSensitive: false), '');
+    text = text.replaceAll(RegExp(r'rgba?\([^)]+\)', caseSensitive: false), '');
+
+    // Remove CSS functions
+    text = text.replaceAll(RegExp(r'(?:calc|var|url|linear-gradient|radial-gradient)\([^)]+\)', caseSensitive: false), '');
+
+    // More comprehensive CSS keyword removal
+    final cssKeywords = [
+      // Layout
+      'display', 'position', 'top', 'right', 'bottom', 'left', 'float', 'clear',
+      'box-sizing', 'margin', 'padding', 'width', 'height', 'max-width', 'min-width',
+      'max-height', 'min-height', 'overflow', 'visibility', 'z-index',
+
+      // Typography
+      'font-family', 'font-size', 'font-weight', 'font-style', 'line-height',
+      'text-align', 'text-decoration', 'text-transform', 'letter-spacing',
+      'word-spacing', 'white-space',
+
+      // Styling
+      'color', 'background', 'background-color', 'background-image', 'border',
+      'border-radius', 'outline', 'box-shadow', 'text-shadow', 'opacity',
+
+      // Flexbox/Grid
+      'flex', 'flex-direction', 'justify-content', 'align-items', 'grid',
+
+      // Animation/Transform
+      'transform', 'transition', 'animation',
+
+      // Table
+      'table', 'tbody', 'thead', 'tr', 'td', 'th', 'table-layout',
+
+      // Email-specific
+      'desktop_hide', 'mobile_show', 'desktop_show', 'mobile_hide',
+
+      // Values
+      'none', 'auto', 'inherit', 'initial', 'unset', 'block', 'inline',
+      'relative', 'absolute', 'fixed', 'static', 'hidden', 'visible',
+      'bold', 'normal', 'italic', 'center', 'left', 'right', 'justify'
+    ];
+
+    for (final keyword in cssKeywords) {
+      text = text.replaceAll(RegExp('\\b$keyword\\b', caseSensitive: false), '');
+    }
+
+    // Remove common email template patterns
+    text = text.replaceAll(RegExp(r'\b(?:desktop_hide|mobile_show|table\.i|mso-[a-z-]+)[a-z_\d-]*', caseSensitive: false), '');
+
+    // Remove Microsoft Outlook specific CSS
+    text = text.replaceAll(RegExp(r'mso-[a-z-]+', caseSensitive: false), '');
+
+    // Remove parentheses with CSS-like content
+    text = text.replaceAll(RegExp(r'\([^)]*(?:max-width|px|%|em|pt|rem)[^)]*\)', caseSensitive: false), '');
+
+    // Remove CSS punctuation and syntax
+    text = text.replaceAll(RegExp(r'[{}();:!]'), ' ');
+    text = text.replaceAll(RegExp(r'[,;]\s*'), ' ');
+
+    // Remove sequences of special characters
+    text = text.replaceAll(RegExp(r'[-=_]{2,}'), ' ');
+
+    // Clean up whitespace
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    // Filter out CSS-like lines more aggressively
+    final lines = text.split(RegExp(r'[\n\r]'));
+    final cleanLines = lines.where((line) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.length < 4) return false;
+
+      // Skip lines that look like CSS properties
+      if (RegExp(r'^[a-z-]+\s*:.*$', caseSensitive: false).hasMatch(trimmed)) return false;
+
+      // Skip lines with @-rules
+      if (RegExp(r'^@[a-z]', caseSensitive: false).hasMatch(trimmed)) return false;
+
+      // Skip lines with lots of CSS units
+      if (RegExp(r'(\d+(?:px|%|em|pt).*){2,}', caseSensitive: false).hasMatch(trimmed)) return false;
+
+      // Skip lines that are mostly CSS selectors/classes
+      if (RegExp(r'^[\.\#][a-z_-]', caseSensitive: false).hasMatch(trimmed)) return false;
+
+      // Skip lines that contain CSS property patterns
+      if (RegExp(r'[a-z-]+\s*:\s*[^;]+;', caseSensitive: false).hasMatch(trimmed)) return false;
+
+      // Skip lines with too many CSS-like tokens
+      final cssTokens = RegExp(r'(\{|\}|px|%|em|#[0-9a-f]+|rgba?|\.|:)', caseSensitive: false);
+      if (cssTokens.allMatches(trimmed).length > 3) return false;
+
+      return true;
+    });
+
+    final result = cleanLines.join(' ').trim();
+
+    // Final cleanup pass - remove any remaining CSS artifacts
+    return result
+        .replaceAll(RegExp(r'\b[a-z-]+\s*:\s*[^;]+;?', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   /// Truncates text intelligently at word boundaries

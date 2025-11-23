@@ -1,11 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:googleapis/gmail/v1.dart' as gmail;
+import 'package:googleapis_auth/auth_io.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/email_message.dart';
+import '../models/email_account.dart' as models;
 import 'dart:convert';
 import 'dart:io';
 import 'google_auth_client.dart';
 import 'email_categorizer.dart';
+import 'gmail_incremental_sync_service.dart';
+import 'advanced_email_cache_service.dart';
 
 /// A service class for interacting with the Gmail API.
 ///
@@ -17,6 +21,10 @@ class GmailApiService {
   gmail.GmailApi? _gmailApi;
   bool _isConnected = false;
 
+  // Enhanced services for incremental sync and caching
+  final GmailIncrementalSyncService _incrementalSync = GmailIncrementalSyncService();
+  final AdvancedEmailCacheService _cacheService = AdvancedEmailCacheService();
+
   // --- Public Methods ---
 
   /// Connects to the Gmail API using a Google Sign-In account.
@@ -25,25 +33,57 @@ class GmailApiService {
   /// headers to create a [gmail.GmailApi] client.
   Future<bool> connectWithGoogleSignIn(GoogleSignInAccount googleUser) async {
     try {
+      debugPrint('📬 GmailApi: Starting connection with Google Sign-In account...');
+      debugPrint('📬 GmailApi: User email: ${googleUser.email}');
+
+      debugPrint('📬 GmailApi: Getting auth headers...');
       final headers = await googleUser.authHeaders;
 
+      debugPrint('📬 GmailApi: Auth headers received: ${headers.isNotEmpty}');
+      debugPrint('📬 GmailApi: Headers keys: ${headers.keys.join(', ')}');
+
       if (headers.isEmpty) {
+        debugPrint('❌ GmailApi: Auth headers are empty');
         return false;
       }
 
+      debugPrint('📬 GmailApi: Creating GoogleAuthClient...');
       final client = GoogleAuthClient(headers);
+
+      debugPrint('📬 GmailApi: Creating Gmail API instance...');
       _gmailApi = gmail.GmailApi(client);
       _isConnected = true;
 
+      debugPrint('📬 GmailApi: Initializing enhanced services...');
+
+      try {
+        debugPrint('📬 GmailApi: Initializing cache service...');
+        await _cacheService.initialize();
+
+        debugPrint('📬 GmailApi: Initializing incremental sync...');
+        await _incrementalSync.initialize(client as AuthClient);
+
+        debugPrint('📬 GmailApi: Enhanced services initialized successfully');
+      } catch (e) {
+        debugPrint('⚠️ GmailApi: Enhanced services initialization failed: $e');
+        // Continue with basic connection test
+      }
+
+      debugPrint('📬 GmailApi: Testing connection by fetching user profile...');
       // Test the connection by fetching the user's profile.
       try {
-        await _gmailApi!.users.getProfile('me');
+        final profile = await _gmailApi!.users.getProfile('me');
+        debugPrint('✅ GmailApi: Connection test successful! Email: ${profile.emailAddress}');
         return true;
       } catch (e) {
+        debugPrint('❌ GmailApi: Connection test failed: $e');
+        debugPrint('❌ GmailApi: Error type: ${e.runtimeType}');
         _isConnected = false;
         return false;
       }
     } catch (e) {
+      debugPrint('❌ GmailApi: Connection failed with error: $e');
+      debugPrint('❌ GmailApi: Error type: ${e.runtimeType}');
       _isConnected = false;
       return false;
     }
@@ -59,12 +99,19 @@ class GmailApiService {
     String query = '',
     EmailFolder folder = EmailFolder.inbox,
   }) async {
+    debugPrint('📧 GmailApi: fetchEmails called for account: $accountId');
+    debugPrint('📧 GmailApi: Parameters - maxResults: $maxResults, folder: ${folder.name}, query: "$query"');
+
     if (_gmailApi == null || !_isConnected) {
+      debugPrint('❌ GmailApi: Gmail API not connected - _gmailApi: ${_gmailApi != null}, _isConnected: $_isConnected');
       throw Exception('Gmail API not connected');
     }
 
+    debugPrint('✅ GmailApi: Gmail API is connected, proceeding with fetch...');
+
     try {
       // Build the query based on folder
+      debugPrint('📧 GmailApi: Building folder query...');
       String folderQuery = '';
       switch (folder) {
         case EmailFolder.inbox:
@@ -92,45 +139,81 @@ class GmailApiService {
 
       // Combine folder query with custom query
       final finalQuery = query.isEmpty ? folderQuery : '$folderQuery $query';
+      debugPrint('📧 GmailApi: Final Gmail query: "$finalQuery"');
 
       // Get list of message IDs
+      debugPrint('📧 GmailApi: Calling Gmail API to list messages...');
       final messagesList = await _gmailApi!.users.messages.list(
         'me',
         q: finalQuery,
         maxResults: maxResults,
       );
 
+      debugPrint('📧 GmailApi: Gmail API list call completed');
+      debugPrint('📧 GmailApi: Messages returned: ${messagesList.messages?.length ?? 0}');
+
       if (messagesList.messages == null || messagesList.messages!.isEmpty) {
+        debugPrint('⚠️ GmailApi: No messages found for query: "$finalQuery"');
         return [];
       }
 
       // Fetch detailed message information for each message
+      debugPrint('📧 GmailApi: Fetching detailed information for ${messagesList.messages!.length} messages...');
       final List<EmailMessage> emails = [];
+      int processedCount = 0;
+      int errorCount = 0;
+
       for (final message in messagesList.messages!) {
         if (message.id != null) {
           try {
+            debugPrint('📧 GmailApi: Fetching details for message ${processedCount + 1}/${messagesList.messages!.length} (ID: ${message.id})');
+
             final detailedMessage = await _gmailApi!.users.messages.get(
               'me',
               message.id!,
               format: 'full',
             );
 
+            debugPrint('📧 GmailApi: Successfully fetched message details for ${message.id}');
+            debugPrint('📧 GmailApi: Message has payload: ${detailedMessage.payload != null}');
+            debugPrint('📧 GmailApi: Message has headers: ${detailedMessage.payload?.headers?.length ?? 0}');
+
             final emailMessage = _convertGmailMessageToEmailMessage(
               detailedMessage,
               accountId: accountId,
               folder: folder,
             );
+
+            debugPrint('📧 GmailApi: Successfully converted message to EmailMessage');
+            debugPrint('📧 GmailApi: Subject: "${emailMessage.subject}"');
+            debugPrint('📧 GmailApi: From: "${emailMessage.from}"');
+            debugPrint('📧 GmailApi: Date: ${emailMessage.date}');
+
             emailMessage.category = EmailCategorizer.categorizeEmail(emailMessage);
+            debugPrint('📧 GmailApi: Categorized as: ${emailMessage.category}');
+
             emails.add(emailMessage);
+            processedCount++;
+
+            debugPrint('📧 GmailApi: Added message to emails list. Total count: ${emails.length}');
           } catch (e) {
-            debugPrint('Error fetching message ${message.id}: $e');
+            errorCount++;
+            debugPrint('❌ GmailApi: Error fetching message ${message.id}: $e');
+            debugPrint('❌ GmailApi: Error type: ${e.runtimeType}');
             // Continue with other messages
           }
+        } else {
+          debugPrint('⚠️ GmailApi: Skipping message with null ID');
         }
       }
 
+      debugPrint('📧 GmailApi: Completed fetching emails. Processed: $processedCount, Errors: $errorCount, Final count: ${emails.length}');
+      debugPrint('✅ GmailApi: fetchEmails completed successfully, returning ${emails.length} emails');
       return emails;
     } catch (e) {
+      debugPrint('❌ GmailApi: fetchEmails failed with error: $e');
+      debugPrint('❌ GmailApi: Error type: ${e.runtimeType}');
+      debugPrint('❌ GmailApi: Stack trace: ${StackTrace.current}');
       throw Exception('Failed to fetch emails: $e');
     }
   }
@@ -240,12 +323,33 @@ class GmailApiService {
       // Extract body content
       final bodyData = _extractBodyFromPayload(message.payload);
 
-      // Parse date
+      // Parse date - Use Gmail's internalDate as primary source, then header date as fallback
       DateTime parsedDate;
       try {
-        parsedDate = date.isNotEmpty ? _parseRfc2822Date(date) : DateTime.now();
+        // Gmail's internalDate is the most accurate timestamp (milliseconds since epoch)
+        if (message.internalDate != null && message.internalDate!.isNotEmpty) {
+          final internalDateMs = int.tryParse(message.internalDate!);
+          if (internalDateMs != null && internalDateMs > 0) {
+            parsedDate = DateTime.fromMillisecondsSinceEpoch(internalDateMs);
+            debugPrint('📧 GmailApi: Using Gmail internalDate: $parsedDate');
+          } else {
+            throw Exception('Invalid internalDate format');
+          }
+        }
+        // Fallback to parsing header date
+        else if (date.isNotEmpty) {
+          parsedDate = _parseRfc2822Date(date);
+          debugPrint('📧 GmailApi: Using parsed header date: ${parsedDate}');
+        }
+        // Last resort: use a very old date to indicate unknown timestamp
+        else {
+          parsedDate = DateTime.fromMillisecondsSinceEpoch(0); // Unix epoch
+          debugPrint('⚠️ GmailApi: No date available, using epoch');
+        }
       } catch (e) {
-        parsedDate = DateTime.now();
+        debugPrint('❌ GmailApi: Error parsing date "$date": $e');
+        // If all parsing fails, use epoch instead of current time
+        parsedDate = DateTime.fromMillisecondsSinceEpoch(0);
       }
 
       // Extract sender name
@@ -254,6 +358,9 @@ class GmailApiService {
       // Check if message is read (not in UNREAD label)
       final labels = message.labelIds ?? [];
       final isRead = !labels.contains('UNREAD');
+
+      // Use Gmail's built-in snippet - it's already clean and perfect!
+      final previewText = message.snippet ?? 'No preview available';
 
       return EmailMessage(
         messageId: message.id ?? '',
@@ -270,7 +377,7 @@ class GmailApiService {
         folder: folder, // Use actual folder
         uid: message.threadId?.hashCode ?? 0,
         attachments: [], // TODO: Implement attachment extraction
-      );
+      )..previewText = previewText;
     } catch (e) {
       debugPrint('Error converting Gmail message: $e');
       return EmailMessage(
@@ -430,6 +537,216 @@ class GmailApiService {
           .trim();
     } catch (e) {
       return email;
+    }
+  }
+
+  // ==================== ENHANCED EMAIL FETCHING WITH INCREMENTAL SYNC ====================
+
+  /// Performs efficient email sync using incremental sync when possible
+  /// Falls back to traditional fetch for first-time sync or errors
+  Future<List<EmailMessage>> fetchEmailsEfficient({
+    required models.EmailAccount account,
+    required EmailFolder folder,
+    int maxResults = 100,
+    bool forceFullSync = false,
+  }) async {
+    if (!_isConnected || _gmailApi == null) {
+      throw Exception('Gmail API not connected');
+    }
+
+    try {
+      final folderId = _getFolderLabelId(folder);
+
+      if (forceFullSync) {
+        // Force a complete resync
+        await _incrementalSync.forceFullResync(
+          account: account,
+          folderId: folderId,
+        );
+      } else {
+        // Perform incremental sync
+        final syncSuccess = await _incrementalSync.performIncrementalSync(
+          account: account,
+          folderId: folderId,
+          maxResults: maxResults,
+        );
+
+        if (!syncSuccess) {
+          debugPrint('GmailApiService: Incremental sync failed, falling back to cache');
+        }
+      }
+
+      // Return cached headers (fast)
+      final cachedEmails = await _cacheService.getEmailHeaders(
+        accountId: account.id,
+        folder: folder.name,
+        limit: maxResults,
+      );
+
+      debugPrint('GmailApiService: Returning ${cachedEmails.length} cached emails');
+      return cachedEmails;
+
+    } catch (e) {
+      debugPrint('GmailApiService: Error in efficient email fetch: $e');
+
+      // Fallback to cached data if available
+      try {
+        final cachedEmails = await _cacheService.getEmailHeaders(
+          accountId: account.id,
+          folder: folder.name,
+          limit: maxResults,
+        );
+
+        if (cachedEmails.isNotEmpty) {
+          debugPrint('GmailApiService: Returning ${cachedEmails.length} cached emails as fallback');
+          return cachedEmails;
+        }
+      } catch (cacheError) {
+        debugPrint('GmailApiService: Cache fallback also failed: $cacheError');
+      }
+
+      rethrow;
+    }
+  }
+
+  /// Loads full email body on-demand (when user opens email)
+  Future<EmailMessage?> loadEmailBody({
+    required String messageId,
+    required String accountId,
+  }) async {
+    if (!_isConnected || _gmailApi == null) {
+      throw Exception('Gmail API not connected');
+    }
+
+    try {
+      // First check if we have it cached
+      final cachedEmail = await _cacheService.getEmailWithBody(messageId, accountId);
+      if (cachedEmail != null && cachedEmail.textBody.isNotEmpty) {
+        debugPrint('GmailApiService: Returning cached email body for $messageId');
+        return cachedEmail;
+      }
+
+      // Fetch from server using incremental sync service
+      final fullMessage = await _incrementalSync.fetchFullMessage(messageId, accountId);
+      if (fullMessage != null) {
+        // Cache the full body
+        await _cacheService.cacheEmailBody(fullMessage);
+        debugPrint('GmailApiService: Fetched and cached email body for $messageId');
+        return fullMessage;
+      }
+
+      return null;
+
+    } catch (e) {
+      debugPrint('GmailApiService: Error loading email body for $messageId: $e');
+
+      // Return cached header-only version if available
+      return await _cacheService.getEmailWithBody(messageId, accountId);
+    }
+  }
+
+  /// Search emails using full-text search index
+  Future<List<EmailMessage>> searchEmailsFTS({
+    required String accountId,
+    required String query,
+    EmailFolder? folder,
+    int limit = 50,
+  }) async {
+    try {
+      await _cacheService.initialize();
+
+      final searchResults = await _cacheService.searchEmails(
+        accountId: accountId,
+        query: query,
+        folder: folder?.name,
+        limit: limit,
+      );
+
+      debugPrint('GmailApiService: FTS search for "$query" returned ${searchResults.length} results');
+      return searchResults;
+
+    } catch (e) {
+      debugPrint('GmailApiService: FTS search failed: $e');
+      return [];
+    }
+  }
+
+  /// Get sync statistics for monitoring
+  Future<Map<String, dynamic>> getSyncStatistics(String accountId) async {
+    try {
+      final syncStats = await _incrementalSync.getSyncStats(accountId);
+      final cacheStats = await _cacheService.getCacheStats(accountId);
+
+      return {
+        'sync': syncStats,
+        'cache': cacheStats,
+        'lastUpdated': DateTime.now().toIso8601String(),
+      };
+    } catch (e) {
+      debugPrint('GmailApiService: Error getting sync statistics: $e');
+      return {};
+    }
+  }
+
+  /// Trigger background sync for better performance
+  Future<void> triggerBackgroundSync(models.EmailAccount account) async {
+    if (!_isConnected) return;
+
+    try {
+      final folders = [EmailFolder.inbox, EmailFolder.sent, EmailFolder.drafts];
+
+      for (final folder in folders) {
+        final folderId = _getFolderLabelId(folder);
+
+        // Perform incremental sync in background
+        await _incrementalSync.performIncrementalSync(
+          account: account,
+          folderId: folderId,
+          maxResults: 50, // Smaller batch for background
+        );
+
+        // Small delay between folders to avoid rate limiting
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      // Update cache statistics
+      await _cacheService.updateCacheStats(account.id);
+
+      debugPrint('GmailApiService: Background sync completed for ${account.email}');
+
+    } catch (e) {
+      debugPrint('GmailApiService: Background sync failed for ${account.email}: $e');
+    }
+  }
+
+  /// Clean up old cached data
+  Future<void> cleanupCache(String accountId, {Duration maxAge = const Duration(days: 90)}) async {
+    try {
+      await _cacheService.cleanupOldEmails(accountId: accountId, maxAge: maxAge);
+      await _cacheService.updateCacheStats(accountId);
+      debugPrint('GmailApiService: Cache cleanup completed for $accountId');
+    } catch (e) {
+      debugPrint('GmailApiService: Cache cleanup failed for $accountId: $e');
+    }
+  }
+
+  /// Convert EmailFolder to Gmail label ID
+  String _getFolderLabelId(EmailFolder folder) {
+    switch (folder) {
+      case EmailFolder.inbox:
+        return 'INBOX';
+      case EmailFolder.sent:
+        return 'SENT';
+      case EmailFolder.drafts:
+        return 'DRAFT';
+      case EmailFolder.trash:
+        return 'TRASH';
+      case EmailFolder.spam:
+        return 'SPAM';
+      case EmailFolder.archive:
+        return 'ARCHIVE'; // Note: Gmail doesn't have a dedicated archive label
+      default:
+        return 'INBOX';
     }
   }
 }

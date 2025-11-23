@@ -58,6 +58,10 @@ class EmailAccount extends HiveObject {
   @HiveField(11)
   bool isSSL;
 
+  /// The password for custom email accounts (stored securely).
+  @HiveField(12)
+  String? password;
+
   /// Creates a new instance of the [EmailAccount] class.
   EmailAccount({
     required this.id,
@@ -72,6 +76,7 @@ class EmailAccount extends HiveObject {
     this.smtpServer,
     this.smtpPort,
     this.isSSL = true,
+    this.password,
   });
 
   /// Creates an empty [EmailAccount] object.

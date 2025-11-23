@@ -24,6 +24,8 @@ enum OperationType {
   addLabel,
   @HiveField(9)
   removeLabel,
+  @HiveField(10)
+  snooze,
 }
 
 @HiveType(typeId: 7)

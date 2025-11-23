@@ -78,6 +78,25 @@ class EmailMessage extends HiveObject {
   @HiveField(16)
   String? previewText;
 
+  /// Thread ID for grouping related emails (conversation threading)
+  @HiveField(17)
+  String? threadId;
+
+  /// Reference IDs for reply tracking (In-Reply-To and References headers)
+  @HiveField(18)
+  List<String>? references;
+
+  /// In-Reply-To header for direct reply relationship
+  @HiveField(19)
+  String? inReplyTo;
+
+  /// Snooze until date - when the email should reappear in inbox
+  @HiveField(20)
+  DateTime? snoozeUntil;
+
+  /// Whether this email is currently snoozed
+  bool get isSnoozed => snoozeUntil != null && snoozeUntil!.isAfter(DateTime.now());
+
   /// Creates a new instance of the [EmailMessage] class.
   EmailMessage({
     required this.messageId,
@@ -97,6 +116,10 @@ class EmailMessage extends HiveObject {
     required this.uid,
     this.category = EmailCategory.primary,
     this.previewText,
+    this.threadId,
+    this.references,
+    this.inReplyTo,
+    this.snoozeUntil,
   });
 }
 

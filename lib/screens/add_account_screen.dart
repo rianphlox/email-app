@@ -556,11 +556,21 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
 
   /// Initiates the Google Sign-In flow.
   Future<void> _signInWithGoogle() async {
+    debugPrint('🖱️ UI: User tapped Google Sign-In button');
+
     final emailProvider = context.read<provider.EmailProvider>();
+
+    debugPrint('🖱️ UI: Calling emailProvider.signInWithGoogle()...');
     final success = await emailProvider.signInWithGoogle();
+
+    debugPrint('🖱️ UI: signInWithGoogle returned: $success');
+    debugPrint('🖱️ UI: EmailProvider error: ${emailProvider.error}');
+
     if (success && mounted) {
+      debugPrint('✅ UI: Sign-in successful, navigating back');
       Navigator.pop(context);
     } else if (!success && mounted) {
+      debugPrint('❌ UI: Sign-in failed, showing error snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(emailProvider.error ?? 'Failed to sign in with Google'),

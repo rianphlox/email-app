@@ -34,13 +34,17 @@ class EmailMessageAdapter extends TypeAdapter<EmailMessage> {
       uid: fields[14] as int,
       category: fields[15] as EmailCategory,
       previewText: fields[16] as String?,
+      threadId: fields[17] as String?,
+      references: (fields[18] as List?)?.cast<String>(),
+      inReplyTo: fields[19] as String?,
+      snoozeUntil: fields[20] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, EmailMessage obj) {
     writer
-      ..writeByte(17)
+      ..writeByte(21)
       ..writeByte(0)
       ..write(obj.messageId)
       ..writeByte(1)
@@ -74,7 +78,15 @@ class EmailMessageAdapter extends TypeAdapter<EmailMessage> {
       ..writeByte(15)
       ..write(obj.category)
       ..writeByte(16)
-      ..write(obj.previewText);
+      ..write(obj.previewText)
+      ..writeByte(17)
+      ..write(obj.threadId)
+      ..writeByte(18)
+      ..write(obj.references)
+      ..writeByte(19)
+      ..write(obj.inReplyTo)
+      ..writeByte(20)
+      ..write(obj.snoozeUntil);
   }
 
   @override

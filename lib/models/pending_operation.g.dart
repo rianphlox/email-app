@@ -88,6 +88,8 @@ class OperationTypeAdapter extends TypeAdapter<OperationType> {
         return OperationType.addLabel;
       case 9:
         return OperationType.removeLabel;
+      case 10:
+        return OperationType.snooze;
       default:
         return OperationType.markRead;
     }
@@ -125,6 +127,9 @@ class OperationTypeAdapter extends TypeAdapter<OperationType> {
         break;
       case OperationType.removeLabel:
         writer.writeByte(9);
+        break;
+      case OperationType.snooze:
+        writer.writeByte(10);
         break;
     }
   }

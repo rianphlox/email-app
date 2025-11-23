@@ -39,27 +39,49 @@ class AuthService {
   /// an [EmailAccount] object with the user's information.
   Future<EmailAccount?> signInWithGoogle() async {
     try {
+      debugPrint('🔐 AuthService: Starting Google Sign-In process...');
+      debugPrint('🔐 AuthService: GoogleSignIn configuration scopes: ${_googleSignIn.scopes}');
+      debugPrint('🔐 AuthService: ServerClientId: ${_googleSignIn.serverClientId}');
+
       // Signing out first ensures that the user is prompted to select an account.
+      debugPrint('🔐 AuthService: Signing out existing user...');
       await _googleSignIn.signOut();
 
+      debugPrint('🔐 AuthService: Initiating Google Sign-In...');
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
       if (googleUser == null) {
+        debugPrint('🔐 AuthService: User cancelled the sign-in flow');
         // The user cancelled the sign-in flow.
         return null;
       }
 
+      debugPrint('🔐 AuthService: Sign-In successful! User: ${googleUser.email}');
+      debugPrint('🔐 AuthService: Display Name: ${googleUser.displayName}');
+      debugPrint('🔐 AuthService: User ID: ${googleUser.id}');
+
+      debugPrint('🔐 AuthService: Getting authentication tokens...');
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
 
+      debugPrint('🔐 AuthService: Access Token available: ${googleAuth.accessToken != null}');
+      debugPrint('🔐 AuthService: ID Token available: ${googleAuth.idToken != null}');
+
       if (googleAuth.accessToken == null) {
+        debugPrint('❌ AuthService: Failed to get access token from Google');
         throw Exception('Failed to get access token from Google.');
       }
 
+      debugPrint('🔐 AuthService: Access Token (first 20 chars): ${googleAuth.accessToken!.substring(0, 20)}...');
+
       // Initialize the Gmail API service with the signed-in user.
+      debugPrint('🔐 AuthService: Initializing Gmail API service...');
       _gmailApiService = GmailApiService();
       final connected = await _gmailApiService!.connectWithGoogleSignIn(googleUser);
 
+      debugPrint('🔐 AuthService: Gmail API connection successful: $connected');
+
       if (!connected) {
+        debugPrint('❌ AuthService: Failed to connect to Gmail API');
         throw Exception('Failed to connect to Gmail API.');
       }
 
@@ -73,16 +95,36 @@ class AuthService {
         lastSync: DateTime.now(),
       );
 
+      debugPrint('🔐 AuthService: Created EmailAccount object for: ${account.email}');
+      debugPrint('🔐 AuthService: Account ID: ${account.id}');
+
+      debugPrint('🔐 AuthService: Storing credentials...');
       await _storeCredentials(account);
+
+      debugPrint('✅ AuthService: Google Sign-In completed successfully!');
       return account;
     } catch (e) {
+      debugPrint('❌ AuthService: Google Sign-In failed with error: $e');
+      debugPrint('❌ AuthService: Error type: ${e.runtimeType}');
+      debugPrint('❌ AuthService: Stack trace: ${StackTrace.current}');
+
       // Provide more specific error messages to the user.
       String errorMessage = 'Failed to sign in with Google';
       if (e.toString().contains('network_error')) {
         errorMessage = 'Network error: Please check your internet connection.';
+        debugPrint('❌ AuthService: Detected network error');
       } else if (e.toString().contains('developer_error')) {
         errorMessage = 'Google Sign-In configuration error. Please check your setup.';
+        debugPrint('❌ AuthService: Detected developer/configuration error');
+      } else if (e.toString().contains('sign_in_canceled')) {
+        errorMessage = 'Sign-in was canceled by user.';
+        debugPrint('❌ AuthService: Detected sign-in cancellation');
+      } else if (e.toString().contains('sign_in_failed')) {
+        errorMessage = 'Sign-in failed. Please try again.';
+        debugPrint('❌ AuthService: Detected generic sign-in failure');
       }
+
+      debugPrint('❌ AuthService: Final error message: $errorMessage');
       throw Exception(errorMessage);
     }
   }
@@ -190,6 +232,7 @@ class AuthService {
   }
 
   /// Adds a custom email account with IMAP and SMTP settings.
+  /// Adds a custom email account with manual server configuration.
   Future<EmailAccount?> addCustomEmailAccount({
     required String name,
     required String email,
@@ -198,10 +241,36 @@ class AuthService {
     required int imapPort,
     required String smtpServer,
     required int smtpPort,
-    bool isSSL = true,
+    required bool isSSL,
   }) async {
-    // ... (implementation for custom email account)
-    return null;
+    try {
+      debugPrint('🔐 AuthService: Adding custom email account for $email');
+
+      // Create EmailAccount object for custom provider
+      final account = EmailAccount(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: name,
+        email: email,
+        provider: EmailProvider.custom,
+        accessToken: '', // Custom accounts use password auth, not OAuth
+        lastSync: DateTime.now(),
+        password: password, // Store password for IMAP/SMTP auth
+        imapServer: imapServer,
+        imapPort: imapPort,
+        smtpServer: smtpServer,
+        smtpPort: smtpPort,
+        isSSL: isSSL,
+      );
+
+      // Store account credentials
+      await _storeCredentials(account);
+
+      debugPrint('✅ AuthService: Custom email account added successfully');
+      return account;
+    } catch (e) {
+      debugPrint('❌ AuthService: Failed to add custom email account: $e');
+      return null;
+    }
   }
 
   /// Stores the credentials of an email account in secure storage.
@@ -220,6 +289,7 @@ class AuthService {
         'smtpServer': account.smtpServer,
         'smtpPort': account.smtpPort,
         'isSSL': account.isSSL,
+        'password': account.password,
       }),
     );
   }

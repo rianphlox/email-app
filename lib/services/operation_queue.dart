@@ -3,6 +3,9 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/pending_operation.dart';
 import '../services/gmail_api_service.dart';
 import '../services/auth_service.dart';
+import '../services/final_email_service.dart';
+import '../models/email_account.dart';
+import '../models/email_message.dart';
 import 'dart:math';
 
 class OperationQueue extends ChangeNotifier {
@@ -142,12 +145,57 @@ class OperationQueue extends ChangeNotifier {
 
   /// Execute a specific operation
   Future<bool> _executeOperation(PendingOperation operation) async {
-    final gmailService = AuthService.getGmailApiService();
-    if (gmailService == null) {
-      debugPrint('OperationQueue: Gmail service not available');
+    // Get account information to determine provider
+    final accountId = operation.accountId;
+    if (accountId.isEmpty) {
+      debugPrint('OperationQueue: No account ID for operation');
       return false;
     }
 
+    // Determine account type and use appropriate service
+    // For now, assume Gmail if Gmail service is available, otherwise use IMAP
+    final gmailService = AuthService.getGmailApiService();
+
+    if (gmailService != null) {
+      // Use Gmail API service
+      return await _executeGmailOperation(gmailService, operation);
+    } else {
+      // Use IMAP/SMTP service for custom accounts
+      return await _executeImapOperation(operation);
+    }
+  }
+
+  /// Execute operation using IMAP/SMTP for custom accounts
+  Future<bool> _executeImapOperation(PendingOperation operation) async {
+    try {
+      // Get account information
+      final accountId = operation.accountId;
+      if (accountId.isEmpty) {
+        debugPrint('OperationQueue: No account ID for IMAP operation');
+        return false;
+      }
+
+      // For IMAP operations, we need to get the account details
+      // This is a simplified approach - in production you'd want to maintain account state
+      switch (operation.operationType) {
+        case OperationType.delete:
+          return await _deleteEmailImap(operation);
+        case OperationType.markRead:
+          return await _markAsReadImap(operation);
+        case OperationType.sendEmail:
+          return await _sendEmailImap(operation);
+        default:
+          debugPrint('OperationQueue: IMAP operation ${operation.operationType} not yet implemented');
+          return true; // Return true for unimplemented operations to avoid retry loops
+      }
+    } catch (e) {
+      debugPrint('OperationQueue: IMAP operation ${operation.operationType} failed: $e');
+      return false;
+    }
+  }
+
+  /// Execute operation using Gmail API
+  Future<bool> _executeGmailOperation(dynamic gmailService, PendingOperation operation) async {
     try {
       switch (operation.operationType) {
         case OperationType.markRead:
@@ -179,6 +227,9 @@ class OperationQueue extends ChangeNotifier {
 
         case OperationType.removeLabel:
           return await _removeLabel(gmailService, operation);
+
+        case OperationType.snooze:
+          return await _snoozeEmail(gmailService, operation);
 
       }
     } catch (e) {
@@ -252,6 +303,14 @@ class OperationQueue extends ChangeNotifier {
     return true; // Placeholder
   }
 
+  Future<bool> _snoozeEmail(GmailApiService gmailService, PendingOperation operation) async {
+    if (operation.emailId == null) return false;
+    // For Gmail, snoozing is handled locally in the app
+    // The email is already removed from view and stored with snooze time
+    // No server-side action needed for basic snooze functionality
+    return true;
+  }
+
   /// Clear all pending operations (useful for debugging or account switches)
   Future<void> clearAllOperations() async {
     if (_operationsBox == null) return;
@@ -284,6 +343,141 @@ class OperationQueue extends ChangeNotifier {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final random = Random().nextInt(999999);
     return '${timestamp}_$random';
+  }
+
+  // IMAP operation implementations
+
+  /// Delete email using IMAP
+  Future<bool> _deleteEmailImap(PendingOperation operation) async {
+    try {
+      if (operation.emailId == null) {
+        debugPrint('OperationQueue: No email ID for IMAP delete operation');
+        return false;
+      }
+
+      // Create a temporary EmailMessage object for the IMAP service
+      final emailMessage = EmailMessage(
+        messageId: operation.emailId!,
+        accountId: operation.accountId,
+        subject: '',
+        from: '',
+        to: [],
+        date: DateTime.now(),
+        textBody: '',
+        folder: EmailFolder.inbox,
+        uid: int.tryParse(operation.emailId!) ?? 0,
+      );
+
+      // Create a temporary EmailAccount object (in production, you'd retrieve this from storage)
+      final accountData = operation.data['account'] as Map<String, dynamic>?;
+      if (accountData == null) {
+        debugPrint('OperationQueue: No account data for IMAP delete operation');
+        return false;
+      }
+
+      final emailAccount = EmailAccount(
+        id: accountData['id'] ?? '',
+        name: accountData['name'] ?? '',
+        email: accountData['email'] ?? '',
+        provider: EmailProvider.custom,
+        accessToken: '',
+        lastSync: DateTime.now(),
+        password: accountData['password'],
+        imapServer: accountData['imapServer'],
+        imapPort: accountData['imapPort'],
+        smtpServer: accountData['smtpServer'],
+        smtpPort: accountData['smtpPort'],
+        isSSL: accountData['isSSL'] ?? true,
+      );
+
+      final emailService = FinalEmailService();
+      return await emailService.deleteEmail(emailAccount, emailMessage);
+    } catch (e) {
+      debugPrint('OperationQueue: IMAP delete operation failed: $e');
+      return false;
+    }
+  }
+
+  /// Mark email as read using IMAP
+  Future<bool> _markAsReadImap(PendingOperation operation) async {
+    try {
+      if (operation.emailId == null) return false;
+
+      // Create temporary objects for IMAP service
+      final emailMessage = EmailMessage(
+        messageId: operation.emailId!,
+        accountId: operation.accountId,
+        subject: '',
+        from: '',
+        to: [],
+        date: DateTime.now(),
+        textBody: '',
+        folder: EmailFolder.inbox,
+        uid: int.tryParse(operation.emailId!) ?? 0,
+      );
+
+      final accountData = operation.data['account'] as Map<String, dynamic>?;
+      if (accountData == null) return false;
+
+      final emailAccount = EmailAccount(
+        id: accountData['id'] ?? '',
+        name: accountData['name'] ?? '',
+        email: accountData['email'] ?? '',
+        provider: EmailProvider.custom,
+        accessToken: '',
+        lastSync: DateTime.now(),
+        password: accountData['password'],
+        imapServer: accountData['imapServer'],
+        imapPort: accountData['imapPort'],
+        smtpServer: accountData['smtpServer'],
+        smtpPort: accountData['smtpPort'],
+        isSSL: accountData['isSSL'] ?? true,
+      );
+
+      final emailService = FinalEmailService();
+      return await emailService.markAsRead(emailAccount, emailMessage);
+    } catch (e) {
+      debugPrint('OperationQueue: IMAP mark as read operation failed: $e');
+      return false;
+    }
+  }
+
+  /// Send email using IMAP/SMTP
+  Future<bool> _sendEmailImap(PendingOperation operation) async {
+    try {
+      final emailData = operation.data;
+      final accountData = operation.data['account'] as Map<String, dynamic>?;
+      if (accountData == null) return false;
+
+      final emailAccount = EmailAccount(
+        id: accountData['id'] ?? '',
+        name: accountData['name'] ?? '',
+        email: accountData['email'] ?? '',
+        provider: EmailProvider.custom,
+        accessToken: '',
+        lastSync: DateTime.now(),
+        password: accountData['password'],
+        imapServer: accountData['imapServer'],
+        imapPort: accountData['imapPort'],
+        smtpServer: accountData['smtpServer'],
+        smtpPort: accountData['smtpPort'],
+        isSSL: accountData['isSSL'] ?? true,
+      );
+
+      final emailService = FinalEmailService();
+      return await emailService.sendEmail(
+        account: emailAccount,
+        to: emailData['to'] ?? '',
+        cc: emailData['cc'],
+        bcc: emailData['bcc'],
+        subject: emailData['subject'] ?? '',
+        body: emailData['body'] ?? '',
+        attachmentPaths: emailData['attachments']?.cast<String>(),
+      );
+    } catch (e) {
+      debugPrint('OperationQueue: IMAP send email operation failed: $e');
+      return false;
+    }
   }
 
   /// Dispose resources

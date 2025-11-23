@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/email_provider.dart' as provider;
 import '../models/email_message.dart';
+import '../widgets/rich_text_editor.dart';
 
 class ComposeScreen extends StatefulWidget {
   final String? replyTo;
@@ -34,10 +35,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final _ccController = TextEditingController();
   final _bccController = TextEditingController();
   final _subjectController = TextEditingController();
-  final _bodyController = TextEditingController();
+  final _bodyController = TextEditingController(); // Keep for compatibility
 
   final List<String> _attachmentPaths = [];
   bool _showCcBcc = false;
+  String _bodyText = '';
+
+  void _onBodyTextChanged(String plainText, String html) {
+    setState(() {
+      _bodyText = plainText;
+    });
+  }
 
   @override
   void initState() {
@@ -56,11 +64,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ? '${message.textBody.substring(0, 500)}...'
           : message.textBody;
 
-      _bodyController.text = '\n\n--- Original Message ---\n'
+      final replyText = '\n\n--- Original Message ---\n'
           'From: ${message.from}\n'
           'Date: ${_formatDate(message.date)}\n'
           'Subject: ${message.subject}\n\n'
           '$originalText';
+
+      _bodyController.text = replyText;
+      _bodyText = replyText;
     }
 
     // Handle forward functionality
@@ -248,21 +259,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Body field
-                    TextFormField(
-                      controller: _bodyController,
-                      decoration: const InputDecoration(
-                        labelText: 'Message',
-                        border: OutlineInputBorder(),
-                        alignLabelWithHint: true,
+                    // Body field with rich text editor
+                    Container(
+                      height: 300, // Fixed height for the rich text editor
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+                        ),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      maxLines: 12,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your message';
-                        }
-                        return null;
-                      },
+                      child: RichTextEditor(
+                        initialText: widget.initialBody,
+                        hintText: 'Compose your message...',
+                        onTextChanged: _onBodyTextChanged,
+                      ),
                     ),
 
                     const SizedBox(height: 20),
@@ -386,12 +396,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
     final emailProvider = context.read<provider.EmailProvider>();
 
+    // Use rich text content if available, otherwise fallback to plain text
+    final bodyContent = _bodyText.isNotEmpty ? _bodyText : _bodyController.text;
+
     final success = await emailProvider.sendEmail(
       to: _toController.text,
       cc: _ccController.text.isNotEmpty ? _ccController.text : null,
       bcc: _bccController.text.isNotEmpty ? _bccController.text : null,
       subject: _subjectController.text,
-      body: _bodyController.text,
+      body: bodyContent,
       attachmentPaths: _attachmentPaths.isNotEmpty ? _attachmentPaths : null,
     );
 
