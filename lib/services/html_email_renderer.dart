@@ -1,17 +1,12 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
-import 'package:flutter_html_table/flutter_html_table.dart';
-import 'package:flutter_html_video/flutter_html_video.dart';
-import 'package:flutter_html_audio/flutter_html_audio.dart';
-import 'package:flutter_html_svg/flutter_html_svg.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/quote_processor.dart';
 import '../utils/attachment_processor.dart';
 import '../models/email_message.dart';
-import '../widgets/enhanced_webview_renderer.dart';
+import '../widgets/webview_email_renderer.dart';
 
 class HtmlEmailRenderer {
   static final HtmlEmailRenderer _instance = HtmlEmailRenderer._internal();
@@ -26,60 +21,22 @@ class HtmlEmailRenderer {
     bool useDarkMode = false,
     List<EmailAttachment>? attachments,
   }) {
-    // Try with a fallback strategy for better reliability
-    try {
-      if (htmlContent != null && htmlContent.isNotEmpty) {
-        // First check if content is valid
-        final cleanedHtml = _cleanAndValidateHtml(htmlContent);
-        if (cleanedHtml.isEmpty) {
-          // Fall back to text content if HTML is empty after cleaning
-          if (textContent != null && textContent.isNotEmpty) {
-            return _renderPlainText(textContent, context, useDarkMode);
-          }
-          return _renderEmptyContent(context);
-        }
-
-        // Use Enhanced WebView for emails with quoted text or complex HTML
-        if (_shouldUseEnhancedRenderer(cleanedHtml, textContent)) {
-          return _createRobustRenderer(
-            htmlContent: cleanedHtml,
-            textContent: textContent,
-            attachments: attachments,
-            useDarkMode: useDarkMode,
-          );
-        } else if (_shouldUseWebView(cleanedHtml)) {
-          return _createRobustRenderer(
-            htmlContent: cleanedHtml,
-            textContent: textContent,
-            attachments: attachments,
-            useDarkMode: useDarkMode,
-          );
-        } else {
-          return _renderHtml(cleanedHtml, context, useDarkMode, attachments);
-        }
-      } else if (textContent != null && textContent.isNotEmpty) {
-        // Check if plain text has quoted content
-        if (_hasQuotedText(textContent)) {
-          return _createRobustRenderer(
-            textContent: textContent,
-            attachments: attachments,
-            useDarkMode: useDarkMode,
-          );
-        } else {
-          return _renderPlainText(textContent, context, useDarkMode);
-        }
+    if (htmlContent != null && htmlContent.isNotEmpty) {
+      // Use WebView for complex HTML emails (like the AquaFunded example)
+      if (_shouldUseWebView(htmlContent)) {
+        return WebViewEmailRenderer(
+          htmlContent: htmlContent,
+          attachments: attachments,
+          useDarkMode: useDarkMode,
+          onLinkTap: _handleLinkTap,
+        );
       } else {
-        return _renderEmptyContent(context);
-      }
-    } catch (e) {
-      debugPrint('Email rendering error: $e');
-      // Fallback to simple text rendering
-      if (textContent != null && textContent.isNotEmpty) {
-        return _renderPlainText(textContent, context, useDarkMode);
-      } else if (htmlContent != null && htmlContent.isNotEmpty) {
         return _renderHtml(htmlContent, context, useDarkMode, attachments);
       }
-      return _renderErrorContent(context, e.toString());
+    } else if (textContent != null && textContent.isNotEmpty) {
+      return _renderPlainText(textContent, context, useDarkMode);
+    } else {
+      return _renderEmptyContent(context);
     }
   }
 
@@ -121,16 +78,6 @@ class HtmlEmailRenderer {
     return Html(
       data: sanitizedHtml,
       style: _getHtmlStyles(context, useDarkMode),
-      extensions: [
-        // Critical for emails with tables (newsletters, invoices)
-        const TableHtmlExtension(),
-        // For audio/video attachments
-        const AudioHtmlExtension(),
-        const VideoHtmlExtension(),
-        // For SVG graphics in emails
-        const SvgHtmlExtension(),
-      ],
-      shrinkWrap: true,
       onLinkTap: (url, _, __) => _handleLinkTap(url),
     );
   }
@@ -143,13 +90,6 @@ class HtmlEmailRenderer {
     return Html(
       data: processedHtml,
       style: _getHtmlStyles(context, useDarkMode),
-      extensions: [
-        const TableHtmlExtension(),
-        const AudioHtmlExtension(),
-        const VideoHtmlExtension(),
-        const SvgHtmlExtension(),
-      ],
-      shrinkWrap: true,
       onLinkTap: (url, _, __) => _handleLinkTap(url),
     );
   }
@@ -238,18 +178,10 @@ class HtmlEmailRenderer {
 
   /// Sanitizes CSS to prevent layout breaking and security issues
   void _sanitizeCss(html_dom.Document document) {
-    // Instead of removing all style tags, process them to remove dangerous CSS
-    document.querySelectorAll('style').forEach((element) {
-      final cssContent = element.innerHtml;
-      final cleanedCss = _cleanStyleTagContent(cssContent);
-      if (cleanedCss.trim().isNotEmpty) {
-        element.innerHtml = cleanedCss;
-      } else {
-        element.remove();
-      }
-    });
+    // Remove style tags
+    document.querySelectorAll('style').forEach((element) => element.remove());
 
-    // Clean inline styles but preserve email-important ones
+    // Clean inline styles
     document.querySelectorAll('*').forEach((element) {
       final style = element.attributes['style'];
       if (style != null) {
@@ -260,45 +192,27 @@ class HtmlEmailRenderer {
 
   /// Cleans inline CSS styles
   String _cleanInlineStyle(String style) {
-    // Only remove truly dangerous properties, keep email styling
     final dangerousProperties = [
       'position',
       'z-index',
       'overflow',
+      'display',
+      'visibility',
+      'opacity',
+      'filter',
+      'transform',
       'animation',
       'transition',
       'cursor',
       'pointer-events',
-      'javascript',
-      'expression',
     ];
 
     String cleanStyle = style;
     for (final property in dangerousProperties) {
-      cleanStyle = cleanStyle.replaceAll(RegExp('$property\\s*:[^;]*;?', caseSensitive: false), '');
+      cleanStyle = cleanStyle.replaceAll(RegExp('$property\s*:[^;]*;?', caseSensitive: false), '');
     }
 
     return cleanStyle;
-  }
-
-  /// Cleans content of style tags while preserving email styling
-  String _cleanStyleTagContent(String cssContent) {
-    final dangerousRules = [
-      r'@import[^;]*;',
-      r'@charset[^;]*;',
-      r'javascript:',
-      r'expression\(',
-      r'position\s*:\s*fixed',
-      r'position\s*:\s*absolute',
-      r'z-index\s*:\s*\d+',
-    ];
-
-    String cleanCss = cssContent;
-    for (final rule in dangerousRules) {
-      cleanCss = cleanCss.replaceAll(RegExp(rule, caseSensitive: false), '');
-    }
-
-    return cleanCss;
   }
 
   /// Processes images for security and loading
@@ -403,9 +317,6 @@ class HtmlEmailRenderer {
         width: Width(100, Unit.percent),
         height: Height.auto(),
         margin: Margins.only(top: 8, bottom: 8),
-        display: Display.block,
-        border: Border.all(color: Colors.transparent),
-        textAlign: TextAlign.center,
       ),
       'table': Style(
         width: Width(100, Unit.percent),
@@ -453,27 +364,6 @@ class HtmlEmailRenderer {
         margin: Margins.symmetric(vertical: 16),
         border: Border(top: BorderSide(color: theme.colorScheme.outline)),
       ),
-      // Gmail-specific quote styling
-      '.gmail_quote': Style(
-        margin: Margins.only(left: 16, top: 12, bottom: 12),
-        padding: HtmlPaddings.only(left: 16),
-        border: Border(left: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.5), width: 2)),
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-        fontSize: FontSize(14),
-      ),
-      // Outlook/Apple Mail quote styling
-      '.AppleMailSignature': Style(
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-        fontSize: FontSize(12),
-        fontStyle: FontStyle.italic,
-      ),
-      // Common email elements
-      'div[dir="ltr"]': Style(
-        textAlign: TextAlign.left,
-      ),
-      'div[dir="rtl"]': Style(
-        textAlign: TextAlign.right,
-      ),
     };
   }
 
@@ -494,225 +384,4 @@ class HtmlEmailRenderer {
     }
   }
 
-  /// Handles image taps to show in full screen
-  void _handleImageTap(String? src) async {
-    if (src == null || src.isEmpty) return;
-
-    try {
-      final uri = Uri.parse(src);
-      if (uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https')) {
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      }
-    } catch (e) {
-      debugPrint('Failed to open image: $e');
-    }
-  }
-
-  /// Handles quote toggle events from the enhanced renderer
-  void _handleQuoteToggled(String quoteId, bool isExpanded) {
-    debugPrint('Quote $quoteId ${isExpanded ? 'expanded' : 'collapsed'}');
-    // TODO: Add analytics or user preference tracking here
-  }
-
-  /// Determines if enhanced renderer should be used for advanced quote handling
-  bool _shouldUseEnhancedRenderer(String? htmlContent, String? textContent) {
-    // Check HTML content for quoted text patterns
-    if (htmlContent != null && htmlContent.isNotEmpty) {
-      if (_hasQuotedText(htmlContent)) {
-        return true;
-      }
-    }
-
-    // Check text content for quoted text patterns
-    if (textContent != null && textContent.isNotEmpty) {
-      if (_hasQuotedText(textContent)) {
-        return true;
-      }
-    }
-
-    // Use enhanced renderer for emails with reply/forward headers
-    if (htmlContent != null && _hasReplyForwardHeaders(htmlContent)) {
-      return true;
-    }
-    if (textContent != null && _hasReplyForwardHeaders(textContent)) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /// Checks if content has quoted text (lines starting with >)
-  bool _hasQuotedText(String content) {
-    final lines = content.split('\n');
-    return lines.any((line) => line.trim().startsWith('>'));
-  }
-
-  /// Checks if content has reply or forward headers
-  bool _hasReplyForwardHeaders(String content) {
-    final replyPatterns = [
-      RegExp(r'On .+,.*wrote:', caseSensitive: false),
-      RegExp(r'From:.*To:.*Subject:', caseSensitive: false),
-      RegExp(r'---------- Forwarded message', caseSensitive: false),
-      RegExp(r'Begin forwarded message', caseSensitive: false),
-      RegExp(r'Original Message', caseSensitive: false),
-    ];
-
-    return replyPatterns.any((pattern) => pattern.hasMatch(content));
-  }
-
-  /// Cleans and validates HTML content to prevent rendering issues
-  String _cleanAndValidateHtml(String htmlContent) {
-    try {
-      // Parse HTML to check if it's valid
-      final document = html_parser.parse(htmlContent);
-
-      // Remove script and style tags completely
-      document.querySelectorAll('script, style').forEach((element) {
-        element.remove();
-      });
-
-      // Remove CSS-like content that might still be present
-      final cleanedHtml = document.outerHtml;
-
-      // Further clean CSS remnants
-      String cleaned = cleanedHtml
-          .replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false, dotAll: true), '')
-          .replaceAll(RegExp(r'style\s*=\s*"[^"]*"'), '')
-          .replaceAll(RegExp(r"style\s*=\s*'[^']*'"), '')
-          .replaceAll(RegExp(r'\*\s*\{[^}]*\}'), '') // CSS selectors
-          .replaceAll(RegExp(r'body\s*\{[^}]*\}'), '')
-          .replaceAll(RegExp(r'font-[a-z-]*\s*:\s*[^;]*;?'), '')
-          .replaceAll(RegExp(r'margin\s*:\s*[^;]*;?'), '')
-          .replaceAll(RegExp(r'padding\s*:\s*[^;]*;?'), '')
-          .replaceAll(RegExp(r'box-sizing\s*:\s*border-box;?'), '');
-
-      // Check if there's actual content left
-      final parsedDoc = html_parser.parse(cleaned);
-      final element = parsedDoc.documentElement;
-      final textContent = element?.text.trim();
-
-      if (textContent == null || textContent.isEmpty) {
-        return '';
-      }
-
-      return cleaned;
-    } catch (e) {
-      debugPrint('HTML cleaning error: $e');
-      return htmlContent; // Return original if cleaning fails
-    }
-  }
-
-  /// Creates a robust renderer with timeout and error handling
-  Widget _createRobustRenderer({
-    String? htmlContent,
-    String? textContent,
-    List<EmailAttachment>? attachments,
-    bool useDarkMode = false,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SizedBox(
-          height: constraints.maxHeight > 0 ? constraints.maxHeight : 600, // Ensure minimum height
-          child: FutureBuilder<Widget>(
-            future: _buildRendererWithTimeout(
-              htmlContent: htmlContent,
-              textContent: textContent,
-              attachments: attachments,
-              useDarkMode: useDarkMode,
-            ),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Container(
-                  padding: const EdgeInsets.all(32),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('Loading email...'),
-                    ],
-                  ),
-                );
-              }
-
-              if (snapshot.hasError) {
-                return _renderErrorContent(context, snapshot.error.toString());
-              }
-
-              return snapshot.data ?? _renderErrorContent(context, 'Failed to load content');
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  /// Builds renderer with timeout to prevent hanging
-  Future<Widget> _buildRendererWithTimeout({
-    String? htmlContent,
-    String? textContent,
-    List<EmailAttachment>? attachments,
-    bool useDarkMode = false,
-  }) {
-    return Future.delayed(Duration.zero, () {
-      try {
-        return EnhancedWebViewRenderer(
-          htmlContent: htmlContent,
-          textContent: textContent,
-          attachments: attachments,
-          useDarkMode: useDarkMode,
-          onLinkTap: _handleLinkTap,
-          onQuoteToggled: _handleQuoteToggled,
-        );
-      } catch (e) {
-        throw Exception('Renderer creation failed: $e');
-      }
-    }).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        throw Exception('Renderer creation timed out');
-      },
-    );
-  }
-
-  /// Renders error content with retry option
-  Widget _renderErrorContent(BuildContext context, String error) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Theme.of(context).colorScheme.error,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Email Content Error',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Theme.of(context).colorScheme.error,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'There was a problem displaying this email.',
-            style: Theme.of(context).textTheme.bodyMedium,
-            textAlign: TextAlign.center,
-          ),
-          if (kDebugMode) ...[
-            const SizedBox(height: 16),
-            Text(
-              error,
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }

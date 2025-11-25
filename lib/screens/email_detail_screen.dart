@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/email_message.dart';
 import '../services/html_email_renderer.dart';
-import '../widgets/attachment_preview.dart';
-import '../widgets/smart_reply_widget.dart';
 import 'compose_screen.dart';
 
 class EmailDetailScreen extends StatelessWidget {
@@ -13,67 +11,42 @@ class EmailDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          // Gmail-style collapsing app bar
-          SliverAppBar(
-            title: Text(
-              message.subject.isNotEmpty ? message.subject : 'No Subject',
-              style: const TextStyle(fontSize: 16),
-            ),
-            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-            floating: true,
-            snap: true,
-            pinned: false,
-            expandedHeight: 56.0,
-            actions: [
-              IconButton(
-                onPressed: () => _showMoreActions(context),
-                icon: const Icon(Icons.more_vert),
-              ),
-            ],
+      appBar: AppBar(
+        title: Text(message.subject.isNotEmpty ? message.subject : 'No Subject'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            onPressed: () => _showMoreActions(context),
+            icon: const Icon(Icons.more_vert),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Header section that can scroll
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            child: _buildEmailHeader(context),
           ),
 
-          // Header section
-          SliverToBoxAdapter(
-            child: Container(
-              padding: const EdgeInsets.all(16.0),
-              child: _buildEmailHeader(context),
-            ),
-          ),
-
-          // Email body - scrollable content
-          SliverToBoxAdapter(
+          // Email body - takes remaining space without scroll conflict
+          Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16.0),
               child: _buildEmailBody(context),
             ),
           ),
 
-          // Attachments section (if any)
+          // Attachments section (if any) - scrollable
           if (message.attachments?.isNotEmpty == true)
-            SliverToBoxAdapter(
-              child: Container(
-                padding: const EdgeInsets.all(16.0),
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              child: SingleChildScrollView(
                 child: _buildAttachments(context),
               ),
             ),
 
-          // Smart Reply suggestions
-          SliverToBoxAdapter(
-            child: SmartReplyWidget(
-              email: message,
-              onReplySent: () {
-                // Could trigger a refresh or navigation back
-                Navigator.pop(context);
-              },
-            ),
-          ),
-
-          // Action buttons
-          SliverToBoxAdapter(
-            child: _buildActionButtons(context),
-          ),
+          _buildActionButtons(context),
         ],
       ),
     );
@@ -89,7 +62,7 @@ class EmailDetailScreen extends StatelessWidget {
         color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         border: Border(
           top: BorderSide(
-            color: isDark ? const Color(0xFF333333) : Colors.grey[300] ?? const Color(0xFFE0E0E0),
+            color: isDark ? const Color(0xFF333333) : Colors.grey[300]!,
             width: 1,
           ),
         ),
@@ -159,7 +132,7 @@ class EmailDetailScreen extends StatelessWidget {
         color: isDark ? const Color(0xFF2D3748) : Colors.grey[100],
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isDark ? const Color(0xFF4A5568) : Colors.grey[300] ?? const Color(0xFFE0E0E0),
+          color: isDark ? const Color(0xFF4A5568) : Colors.grey[300]!,
           width: 1,
         ),
       ),
@@ -386,29 +359,45 @@ class EmailDetailScreen extends StatelessWidget {
   }
 
   Widget _buildAttachments(BuildContext context) {
-    final attachments = message.attachments;
-    if (attachments == null || attachments.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: Text(
-            'Attachments (${attachments.length})',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+        Text(
+          'Attachments',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
           ),
         ),
-        ...attachments.map((attachment) => AttachmentPreview(
-          attachment: attachment,
-          onTap: () {
-            // Handle attachment tap
-          },
-        )),
+        const SizedBox(height: 8),
+        ...message.attachments?.map((attachment) =>
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.attach_file,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    attachment.name,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                Text(
+                  '${(attachment.size / 1024).toStringAsFixed(1)} KB',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ) ?? [],
       ],
     );
   }
