@@ -28,7 +28,7 @@ enum OperationType {
   snooze,
 }
 
-@HiveType(typeId: 7)
+@HiveType(typeId: 8)
 class PendingOperation extends HiveObject {
   @HiveField(0)
   late String id;
