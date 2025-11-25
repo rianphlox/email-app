@@ -1310,7 +1310,8 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                     // Star button (Gmail-style)
                     IconButton(
                       onPressed: () {
-                        // TODO: Implement star functionality
+                        final emailProvider = context.read<provider.EmailProvider>();
+                        emailProvider.toggleImportant(message);
                       },
                       icon: Icon(
                         message.isImportant ? Icons.star : Icons.star_border,
@@ -1573,7 +1574,8 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                     // Star button (Gmail-style)
                     IconButton(
                       onPressed: () {
-                        // TODO: Implement star functionality
+                        final emailProvider = context.read<provider.EmailProvider>();
+                        emailProvider.toggleImportant(message);
                       },
                       icon: Icon(
                         message.isImportant ? Icons.star : Icons.star_border,

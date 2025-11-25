@@ -138,16 +138,29 @@ class EmailProvider extends ChangeNotifier {
     if (!Hive.isAdapterRegistered(4)) {
       Hive.registerAdapter(EmailAttachmentAdapter());
     }
+    if (!Hive.isAdapterRegistered(5)) {
+      Hive.registerAdapter(EmailCategoryAdapter());
+    }
     if (!Hive.isAdapterRegistered(6)) {
       Hive.registerAdapter(OperationTypeAdapter());
     }
     if (!Hive.isAdapterRegistered(7)) {
+      Hive.registerAdapter(ConversationAdapter());
+    }
+    if (!Hive.isAdapterRegistered(8)) {
       Hive.registerAdapter(PendingOperationAdapter());
     }
 
-    // Open Hive boxes for storing data.
-    _accountsBox = await Hive.openBox<models.EmailAccount>('accounts');
-    _messagesBox = await Hive.openBox<EmailMessage>('messages');
+    // Open Hive boxes for storing data with error handling for corrupted data.
+    try {
+      _accountsBox = await Hive.openBox<models.EmailAccount>('accounts');
+      _messagesBox = await Hive.openBox<EmailMessage>('messages');
+    } catch (e) {
+      debugPrint('EmailProvider: Hive corruption detected, clearing data: $e');
+      await _clearCorruptedData();
+      _accountsBox = await Hive.openBox<models.EmailAccount>('accounts');
+      _messagesBox = await Hive.openBox<EmailMessage>('messages');
+    }
 
     // Load stored accounts from the database.
     _accounts = _accountsBox!.values.toList();
@@ -771,6 +784,38 @@ class EmailProvider extends ChangeNotifier {
       await _messagesBox?.put(message.messageId, message);
       notifyListeners();
       setError('Failed to mark email as read: $e');
+    }
+  }
+
+  /// Toggles the important/starred status of an email with optimistic UI updates
+  Future<void> toggleImportant(EmailMessage message) async {
+    if (_currentAccount == null) return;
+
+    // Store original value for rollback
+    final originalValue = message.isImportant;
+
+    try {
+      // 1. Optimistic UI update - toggle immediately
+      message.isImportant = !message.isImportant;
+      await _messagesBox?.put(message.messageId, message);
+      notifyListeners();
+
+      // 2. Queue operation for server sync
+      await _operationQueue.queueOperation(
+        operationType: message.isImportant ? OperationType.star : OperationType.unstar,
+        emailId: message.messageId,
+        data: {},
+        accountId: _currentAccount!.id,
+      );
+
+      // 3. If online, the operation queue will process immediately
+      // If offline, it will sync when connectivity returns
+    } catch (e) {
+      // Rollback on failure
+      message.isImportant = originalValue;
+      await _messagesBox?.put(message.messageId, message);
+      notifyListeners();
+      setError('Failed to toggle email importance: $e');
     }
   }
 
@@ -2050,6 +2095,26 @@ class EmailProvider extends ChangeNotifier {
     }
   }
 
+  /// Clear corrupted Hive data by deleting all boxes
+  Future<void> _clearCorruptedData() async {
+    try {
+      debugPrint('EmailProvider: Clearing corrupted Hive data...');
+
+      // Close existing boxes if open
+      await _accountsBox?.close();
+      await _messagesBox?.close();
+
+      // Delete all Hive boxes to clear corrupted data
+      await Hive.deleteBoxFromDisk('accounts');
+      await Hive.deleteBoxFromDisk('messages');
+      await Hive.deleteBoxFromDisk('conversations');
+      await Hive.deleteBoxFromDisk('pending_operations');
+
+      debugPrint('EmailProvider: All corrupted Hive data cleared');
+    } catch (e) {
+      debugPrint('EmailProvider: Error clearing corrupted data: $e');
+    }
+  }
 
   @override
   void dispose() {
