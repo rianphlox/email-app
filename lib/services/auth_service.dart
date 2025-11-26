@@ -139,7 +139,7 @@ class AuthService {
     _gmailApiService = service;
   }
 
-  /// Returns the currently initialized Yahoo API service.
+  /// Gets the Yahoo API service instance for authorized requests.
   static YahooApiService? getYahooApiService() {
     return _yahooApiService;
   }
@@ -171,12 +171,12 @@ class AuthService {
         throw Exception('Failed to launch Yahoo OAuth flow');
       }
 
-      // Note: In a real app, you would need to handle the OAuth callback
-      // This is a simplified version for demonstration
-      debugPrint('Yahoo OAuth flow launched. Handle the callback in your app.');
+      // Note: The OAuth flow will redirect to qmail://auth
+      // You'll need to handle this deep link in your app
+      debugPrint('Yahoo OAuth flow launched. The user will be redirected to qmail://auth after authentication.');
+      debugPrint('To complete the flow, call completeYahooSignIn(callbackUrl) when you receive the deep link.');
 
-      // For now, return null since we need to handle the OAuth callback
-      // In a production app, you would wait for the callback and get tokens
+      // Return null to indicate that the flow needs to be completed via deep link
       return null;
 
     } catch (e) {
@@ -212,11 +212,16 @@ class AuthService {
         throw Exception('Failed to connect to Yahoo Mail API');
       }
 
-      // Create account (we'll need to get user info from Yahoo API)
+      // Get user profile information
+      final userProfile = await _yahooApiService!.getUserProfile();
+      final userName = userProfile['name'] ?? 'Yahoo User';
+      final userEmail = userProfile['email'] ?? 'user@yahoo.com';
+
+      // Create account with actual user info
       final account = EmailAccount(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: 'Yahoo User', // TODO: Get actual name from Yahoo API
-        email: 'user@yahoo.com', // TODO: Get actual email from Yahoo API
+        name: userName,
+        email: userEmail,
         provider: EmailProvider.yahoo,
         accessToken: accessToken,
         refreshToken: refreshToken,

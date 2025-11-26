@@ -351,4 +351,65 @@ class YahooApiService {
       );
     }
   }
+
+  /// Gets user profile information from Yahoo
+  Future<Map<String, String>> getUserProfile() async {
+    if (_accessToken == null || !_isConnected) {
+      throw Exception('Yahoo Mail API not connected');
+    }
+
+    try {
+      // Get user profile from Yahoo Mail API
+      final response = await http.get(
+        Uri.parse('$_baseUrl/ws/v3/mailboxes/@/profile'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final profile = data['profile'] ?? {};
+
+        // Extract user information
+        final name = profile['givenName'] ?? profile['nickname'] ?? 'Yahoo User';
+        final email = profile['email'] ?? '';
+
+        return {
+          'name': name,
+          'email': email,
+        };
+      } else {
+        // Fallback: try to get email from OpenID Connect userinfo endpoint
+        final userinfoResponse = await http.get(
+          Uri.parse('https://api.login.yahoo.com/openid/v1/userinfo'),
+          headers: {
+            'Authorization': 'Bearer $_accessToken',
+            'Content-Type': 'application/json',
+          },
+        );
+
+        if (userinfoResponse.statusCode == 200) {
+          final userInfo = json.decode(userinfoResponse.body);
+          return {
+            'name': userInfo['name'] ?? userInfo['given_name'] ?? 'Yahoo User',
+            'email': userInfo['email'] ?? '',
+          };
+        }
+      }
+
+      // If both fail, return basic info
+      return {
+        'name': 'Yahoo User',
+        'email': '',
+      };
+    } catch (e) {
+      debugPrint('Error fetching Yahoo user profile: $e');
+      return {
+        'name': 'Yahoo User',
+        'email': '',
+      };
+    }
+  }
 }

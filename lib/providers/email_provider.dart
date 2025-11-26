@@ -755,6 +755,21 @@ class EmailProvider extends ChangeNotifier {
           body: body,
           attachmentPaths: attachmentPaths,
         );
+      } else if (_currentAccount!.provider == models.EmailProvider.yahoo) {
+        // Use the Yahoo API for Yahoo accounts.
+        final yahooService = AuthService.getYahooApiService();
+        if (yahooService == null) {
+          throw Exception('Yahoo API service not initialized');
+        }
+
+        success = await yahooService.sendEmail(
+          to: to,
+          cc: cc,
+          bcc: bcc,
+          subject: subject,
+          body: body,
+          attachmentPaths: attachmentPaths,
+        );
       } else {
         // Use SMTP for other email providers.
         success = await _emailService.sendEmail(
