@@ -550,6 +550,9 @@ class EmailProvider extends ChangeNotifier {
 
       _currentFolder = folder;
 
+      // Track folder access for intelligent caching
+      _trackFolderAccess(folder);
+
       // Notify UI immediately with cleared content (shows empty state)
       notifyListeners();
 
@@ -573,7 +576,7 @@ class EmailProvider extends ChangeNotifier {
       notifyListeners();
 
       // Debounced background sync to avoid interfering with instant switching
-      _scheduleBackgroundSync();
+      _scheduleOptimizedBackgroundSync();
     }
   }
 
@@ -2180,6 +2183,277 @@ class EmailProvider extends ChangeNotifier {
         }
       }
     });
+  }
+
+  // === LEVEL 3 PERFORMANCE: ADVANCED CACHING & BACKGROUND SYNC ===
+
+  /// Cache size limit per account (in MB)
+  static const int _maxCacheSizeMB = 50;
+
+  /// Folder access frequency tracking for intelligent caching
+  final Map<String, Map<EmailFolder, int>> _folderAccessCount = {};
+
+  /// Last access time tracking for cache eviction
+  final Map<String, Map<EmailFolder, DateTime>> _folderLastAccess = {};
+
+  /// Intelligently warms cache for frequently accessed folders
+  void _warmFrequentlyAccessedFolders() async {
+    if (_currentAccount == null) return;
+
+    final accountId = _currentAccount!.id;
+    final folderStats = _folderAccessCount[accountId] ?? {};
+
+    // Sort folders by access frequency
+    final sortedFolders = folderStats.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    debugPrint('📱 Cache warming: Processing ${sortedFolders.length} folders for $accountId');
+
+    // Warm cache for top 3 most accessed folders (excluding current)
+    for (int i = 0; i < sortedFolders.length && i < 3; i++) {
+      final folder = sortedFolders[i].key;
+      if (folder == _currentFolder) continue;
+
+      // Check if folder was accessed recently (within last hour)
+      final lastAccess = _folderLastAccess[accountId]?[folder];
+      if (lastAccess == null || DateTime.now().difference(lastAccess) < const Duration(hours: 1)) {
+        debugPrint('📱 Cache warming: Preloading folder ${folder.name}...');
+        _preloadFolderInBackground(folder);
+      }
+    }
+  }
+
+  /// Preloads a folder's emails in the background
+  void _preloadFolderInBackground(EmailFolder folder) async {
+    if (_currentAccount == null) return;
+
+    Future.microtask(() async {
+      try {
+        // Use existing fetchEmails method to load folder
+        final oldFolder = _currentFolder;
+        _currentFolder = folder;
+        await fetchEmails(limit: 10, forceRefresh: false);
+        _currentFolder = oldFolder;
+        debugPrint('📱 Cache warming: Preloaded ${folder.name} successfully');
+      } catch (e) {
+        debugPrint('📱 Cache warming: Failed to preload ${folder.name}: $e');
+      }
+    });
+  }
+
+  /// Tracks folder access for intelligent caching
+  void _trackFolderAccess(EmailFolder folder) {
+    if (_currentAccount == null) return;
+
+    final accountId = _currentAccount!.id;
+
+    // Initialize tracking maps if needed
+    _folderAccessCount[accountId] ??= {};
+    _folderLastAccess[accountId] ??= {};
+
+    // Increment access count
+    _folderAccessCount[accountId]![folder] =
+        (_folderAccessCount[accountId]![folder] ?? 0) + 1;
+
+    // Update last access time
+    _folderLastAccess[accountId]![folder] = DateTime.now();
+
+    debugPrint('📱 Folder tracking: ${folder.name} accessed ${_folderAccessCount[accountId]![folder]} times');
+  }
+
+  /// Optimized background sync with intelligent scheduling
+  void _scheduleOptimizedBackgroundSync() {
+    _backgroundSyncTimer?.cancel();
+
+    // Use adaptive delay based on user activity and network conditions
+    final isHighActivity = _isHighUserActivity();
+    final networkQuality = _getNetworkQuality();
+
+    Duration delay;
+    if (isHighActivity) {
+      // User is actively using the app - shorter delay
+      delay = const Duration(seconds: 30);
+    } else if (networkQuality == 'poor') {
+      // Poor network - longer delay to avoid conflicts
+      delay = const Duration(minutes: 5);
+    } else {
+      // Normal conditions - balanced delay
+      delay = const Duration(minutes: 2);
+    }
+
+    debugPrint('📡 Background sync: Scheduled for ${delay.inSeconds}s (activity: $isHighActivity, network: $networkQuality)');
+
+    _backgroundSyncTimer = Timer(delay, () {
+      _performOptimizedBackgroundSync();
+    });
+  }
+
+  /// Detects if user is currently highly active
+  bool _isHighUserActivity() {
+    final now = DateTime.now();
+
+    // Check if any folder was accessed in the last 30 seconds
+    for (final accountFolders in _folderLastAccess.values) {
+      for (final lastAccess in accountFolders.values) {
+        if (now.difference(lastAccess) < const Duration(seconds: 30)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /// Gets current network quality estimation
+  String _getNetworkQuality() {
+    // Simple network quality estimation
+    // In a real implementation, you'd use connectivity_plus to check connection type
+    if (isOnline) {
+      return 'good'; // Assume good quality when online
+    } else {
+      return 'none';
+    }
+  }
+
+  /// Performs optimized background sync
+  void _performOptimizedBackgroundSync() async {
+    if (isOffline || _currentAccount == null) {
+      debugPrint('📡 Background sync: Skipped (offline or no account)');
+      return;
+    }
+
+    final accountId = _currentAccount!.id;
+    debugPrint('📡 Background sync: Starting optimized sync for $accountId...');
+
+    try {
+      // 1. Sync current folder first (highest priority)
+      await _syncFolderInBackground(_currentFolder, limit: 20);
+
+      // 2. Sync frequently accessed folders
+      final folderStats = _folderAccessCount[accountId] ?? {};
+      final frequentFolders = folderStats.entries
+          .where((e) => e.key != _currentFolder && e.value > 2)
+          .map((e) => e.key)
+          .take(2)
+          .toList();
+
+      for (final folder in frequentFolders) {
+        await _syncFolderInBackground(folder, limit: 10);
+      }
+
+      // 3. Update last sync time
+      _lastSyncTime[accountId] = DateTime.now();
+
+      // 4. Perform cache maintenance
+      _performCacheMaintenance();
+
+      debugPrint('📡 Background sync: Completed successfully');
+
+    } catch (e) {
+      debugPrint('📡 Background sync: Failed - $e');
+    } finally {
+      // Schedule next sync
+      _scheduleOptimizedBackgroundSync();
+    }
+  }
+
+  /// Syncs a specific folder in the background
+  Future<void> _syncFolderInBackground(EmailFolder folder, {int limit = 25}) async {
+    try {
+      debugPrint('📡 Background sync: Syncing ${folder.name} (limit: $limit)...');
+
+      // Temporarily switch to target folder and fetch emails
+      final originalFolder = _currentFolder;
+      _currentFolder = folder;
+
+      await fetchEmails(limit: limit, forceRefresh: false);
+
+      // Get the fetched messages from the current messages list
+      final messages = List<EmailMessage>.from(_messages);
+
+      // Restore original folder
+      _currentFolder = originalFolder;
+
+      debugPrint('📡 Background sync: ${folder.name} - cached ${messages.length} messages');
+
+    } catch (e) {
+      debugPrint('📡 Background sync: Failed to sync ${folder.name} - $e');
+    }
+  }
+
+  /// Performs intelligent cache maintenance
+  void _performCacheMaintenance() {
+    if (_currentAccount == null) return;
+
+    final accountId = _currentAccount!.id;
+    final accountCache = _accountEmailCache[accountId];
+    if (accountCache == null) return;
+
+    debugPrint('🧹 Cache maintenance: Starting for $accountId...');
+
+    // Calculate current cache size (rough estimation)
+    int totalMessages = 0;
+    for (final folderMessages in accountCache.values) {
+      totalMessages += folderMessages.length;
+    }
+
+    // Estimate cache size in MB (rough: ~1KB per message)
+    final estimatedSizeMB = totalMessages / 1024;
+
+    debugPrint('🧹 Cache maintenance: Current size ~${estimatedSizeMB.toStringAsFixed(1)}MB ($totalMessages messages)');
+
+    // If cache is too large, perform cleanup
+    if (estimatedSizeMB > _maxCacheSizeMB) {
+      _performCacheCleanup(accountId);
+    }
+
+    // Warm cache for frequently accessed folders
+    _warmFrequentlyAccessedFolders();
+  }
+
+  /// Cleans up old cache entries to stay within size limits
+  void _performCacheCleanup(String accountId) {
+    final accountCache = _accountEmailCache[accountId];
+    final folderAccess = _folderLastAccess[accountId] ?? {};
+
+    if (accountCache == null) return;
+
+    debugPrint('🧹 Cache cleanup: Starting for $accountId...');
+
+    // Sort folders by last access time (oldest first)
+    final sortedFolders = folderAccess.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+
+    int messagesRemoved = 0;
+
+    // Remove cache for least recently accessed folders
+    for (final entry in sortedFolders) {
+      final folder = entry.key;
+      final lastAccess = entry.value;
+
+      // Skip current folder and recently accessed folders (< 1 hour)
+      if (folder == _currentFolder ||
+          DateTime.now().difference(lastAccess) < const Duration(hours: 1)) {
+        continue;
+      }
+
+      // Remove this folder's cache
+      final removed = accountCache[folder]?.length ?? 0;
+      accountCache.remove(folder);
+      messagesRemoved += removed;
+
+      debugPrint('🧹 Cache cleanup: Removed ${folder.name} cache ($removed messages)');
+
+      // Check if we've freed enough space
+      final remainingMessages = accountCache.values.fold(0, (sum, list) => sum + list.length);
+      final remainingSizeMB = remainingMessages / 1024;
+
+      if (remainingSizeMB <= _maxCacheSizeMB * 0.8) {
+        break; // Keep 20% buffer
+      }
+    }
+
+    debugPrint('🧹 Cache cleanup: Removed $messagesRemoved messages');
   }
 
   @override
