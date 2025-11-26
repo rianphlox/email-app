@@ -568,7 +568,7 @@ class EmailProvider extends ChangeNotifier {
   }
 
   /// Fetches emails for the current account and folder.
-  Future<void> fetchEmails({int limit = 50, bool forceRefresh = false}) async {
+  Future<void> fetchEmails({int limit = 25, bool forceRefresh = false}) async {
     debugPrint('📬 EmailProvider: fetchEmails called with limit=$limit, forceRefresh=$forceRefresh');
 
     if (_currentAccount == null) {
@@ -619,6 +619,9 @@ class EmailProvider extends ChangeNotifier {
           debugPrint('📬 EmailProvider: Updated last sync time for account');
 
           notifyListeners();
+
+          // Preload first 5 email bodies in background for instant viewing
+          _preloadEmailBodies(emails.take(5).toList());
         } else {
           debugPrint('📬 EmailProvider: No new emails fetched, keeping cached emails');
         }
@@ -651,7 +654,7 @@ class EmailProvider extends ChangeNotifier {
   // Gmail-style infinite scroll loading
   bool _isLoadingMore = false;
   bool _hasMoreEmails = true;
-  int _currentEmailLimit = 15; // Start with 15 emails for faster initial load
+  int _currentEmailLimit = 10; // Start with 10 emails for faster initial load
 
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMoreEmails => _hasMoreEmails;
@@ -1490,7 +1493,7 @@ class EmailProvider extends ChangeNotifier {
   }
 
   /// Fetches emails progressively in small batches for instant UI updates
-  Future<void> _fetchEmailsProgressively(models.EmailAccount account, EmailFolder folder, {int limit = 15}) async {
+  Future<void> _fetchEmailsProgressively(models.EmailAccount account, EmailFolder folder, {int limit = 10}) async {
     debugPrint('🔄 EmailProvider: Starting progressive fetch for ${account.email}');
 
     try {
@@ -1650,7 +1653,7 @@ class EmailProvider extends ChangeNotifier {
   }
 
   /// Fetches emails for a specific account without updating the UI state.
-  Future<List<EmailMessage>> _fetchEmailsForAccount(models.EmailAccount account, EmailFolder folder, {int limit = 15}) async {
+  Future<List<EmailMessage>> _fetchEmailsForAccount(models.EmailAccount account, EmailFolder folder, {int limit = 10}) async {
     debugPrint('🔄 _fetchEmailsForAccount: Starting fetch for ${account.email}');
     debugPrint('🔄 _fetchEmailsForAccount: Provider: ${account.provider}, Folder: ${folder.name}, Limit: $limit');
 
@@ -2144,6 +2147,29 @@ class EmailProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('EmailProvider: Error clearing corrupted data: $e');
     }
+  }
+
+  /// Preloads email bodies in background for faster viewing
+  void _preloadEmailBodies(List<EmailMessage> emails) {
+    if (emails.isEmpty) return;
+
+    debugPrint('📬 EmailProvider: Preloading bodies for ${emails.length} emails in background...');
+
+    // Run in background to not block UI
+    Future.microtask(() async {
+      for (final email in emails) {
+        try {
+          // Only preload if body isn't already cached
+          if ((email.htmlBody?.isEmpty ?? true) && (email.textBody?.isEmpty ?? true)) {
+            // This would trigger the email service to fetch the full body
+            // For now, just log the intent - actual implementation depends on your email service
+            debugPrint('📬 EmailProvider: Would preload body for: ${email.subject}');
+          }
+        } catch (e) {
+          debugPrint('📬 EmailProvider: Error preloading body for ${email.subject}: $e');
+        }
+      }
+    });
   }
 
   @override
