@@ -353,6 +353,71 @@ class _WebViewEmailRendererState extends State<WebViewEmailRenderer> {
       li {
         margin-bottom: 4px;
       }
+
+      /* Social media icons layout - Gmail style 2x3 grid */
+      .social-icons,
+      table[class*="social"],
+      table[class*="icon"],
+      div[class*="social"],
+      .icons-container,
+      table[align="center"] {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        max-width: 120px !important;
+        margin: 16px auto !important;
+      }
+
+      /* Target social media icon images specifically */
+      .social-icons img,
+      table[class*="social"] img,
+      table[class*="icon"] img,
+      div[class*="social"] img,
+      .icons-container img,
+      a[href*="facebook"] img,
+      a[href*="twitter"] img,
+      a[href*="instagram"] img,
+      a[href*="youtube"] img,
+      a[href*="discord"] img,
+      a[href*="tiktok"] img,
+      a[href*="linkedin"] img {
+        width: 40px !important;
+        height: 40px !important;
+        border-radius: 50% !important;
+        display: block !important;
+        margin: 0 auto !important;
+      }
+
+      /* If icons are in a table row, force grid layout */
+      table tr td[align="center"] {
+        display: contents !important;
+      }
+
+      /* For tables that contain multiple social icons in one row */
+      table[align="center"] td {
+        display: grid !important;
+        place-items: center !important;
+      }
+
+      /* Additional patterns for email templates */
+      table[cellpadding] table[align="center"],
+      div[style*="text-align:center"] table,
+      div[style*="text-align: center"] table {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        max-width: 120px !important;
+        margin: 16px auto !important;
+      }
+
+      /* Force social media containers to use grid */
+      table table table[align="center"] {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        max-width: 120px !important;
+        margin: 16px auto !important;
+      }
     ''';
 
     // Don't apply dark mode overrides for WebView rendering
