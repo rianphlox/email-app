@@ -317,7 +317,7 @@ class ActionableNotificationService {
       await notificationsPlugin.show(
         'conversation_${latestEmail.messageId}'.hashCode,
         title,
-        '${threadCount} messages in conversation',
+        '$threadCount messages in conversation',
         NotificationDetails(android: androidDetails, iOS: iosDetails),
         payload: 'conversation:${emailThread.map((e) => e.messageId).join(',')}',
       );

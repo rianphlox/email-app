@@ -339,7 +339,7 @@ class GmailApiService {
         // Fallback to parsing header date
         else if (date.isNotEmpty) {
           parsedDate = _parseRfc2822Date(date);
-          debugPrint('📧 GmailApi: Using parsed header date: ${parsedDate}');
+          debugPrint('📧 GmailApi: Using parsed header date: $parsedDate');
         }
         // Last resort: use a very old date to indicate unknown timestamp
         else {

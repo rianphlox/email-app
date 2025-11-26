@@ -59,21 +59,6 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
     }
   }
 
-  /// Starts background sync after cached emails are shown
-  void _startBackgroundSync() {
-    final emailProvider = context.read<provider.EmailProvider>();
-
-    // Only sync if we have accounts
-    if (emailProvider.accounts.isNotEmpty) {
-      // Small delay to let the UI render cached emails first
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          emailProvider.syncEmails();
-        }
-      });
-    }
-  }
-
   /// Handles pull-to-refresh with Gmail-like UX
   Future<void> _handleRefresh() async {
     if (!mounted) return;
@@ -1184,7 +1169,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
               } else if (direction == DismissDirection.endToStart) {
                 // Snooze email
                 final snoozeTime = await showSnoozeDialog(context);
-                if (snoozeTime != null) {
+                if (snoozeTime != null && mounted) {
                   final emailProvider = context.read<provider.EmailProvider>();
                   await emailProvider.snoozeEmail(message, snoozeTime);
                   if (mounted) {
@@ -1449,7 +1434,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
               } else if (direction == DismissDirection.endToStart) {
                 // Snooze email
                 final snoozeTime = await showSnoozeDialog(context);
-                if (snoozeTime != null) {
+                if (snoozeTime != null && mounted) {
                   final emailProvider = context.read<provider.EmailProvider>();
                   await emailProvider.snoozeEmail(message, snoozeTime);
                   if (mounted) {
@@ -2326,45 +2311,6 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
         builder: (context) => EmailDetailScreen(message: message),
       ),
     );
-  }
-
-  /// Shows a snackbar with a message
-  void _showSnackBar(String message) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  /// Shows a confirmation dialog for deleting emails
-  Future<bool> _showDeleteConfirmationDialog() async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Delete Email'),
-          content: const Text('Are you sure you want to delete this email?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-              ),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    ) ?? false;
   }
 
   String _formatSnoozeTime(DateTime dateTime) {

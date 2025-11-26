@@ -112,7 +112,7 @@ class NudgeService {
             : 'Follow up on this important email';
       } else if (daysSinceSent > 5) {
         priority = NudgePriority.medium;
-        suggestion = 'No response received for ${daysSinceSent} days';
+        suggestion = 'No response received for $daysSinceSent days';
       }
 
       nudges.add(EmailNudge(
@@ -166,11 +166,11 @@ class NudgeService {
       } else if (_containsImportantKeywords(email)) {
         priority = daysSinceReceived > 2 ? NudgePriority.high : NudgePriority.medium;
         message = daysSinceReceived > 2
-            ? 'Important email pending for ${daysSinceReceived} days'
+            ? 'Important email pending for $daysSinceReceived days'
             : 'Important email may need a response';
       } else if (daysSinceReceived > 3) {
         priority = NudgePriority.medium;
-        message = 'Email pending for ${daysSinceReceived} days';
+        message = 'Email pending for $daysSinceReceived days';
       } else if (hoursSinceReceived > 24) {
         priority = NudgePriority.low;
         message = 'Email received yesterday';
@@ -235,11 +235,11 @@ class NudgeService {
       } else if (daysUntilDeadline <= 3) {
         priority = NudgePriority.high;
         title = 'Deadline approaching';
-        message = 'Deadline in ${daysUntilDeadline} days';
+        message = 'Deadline in $daysUntilDeadline days';
       } else if (daysUntilDeadline <= 7) {
         priority = NudgePriority.medium;
         title = 'Upcoming deadline';
-        message = 'Deadline in ${daysUntilDeadline} days';
+        message = 'Deadline in $daysUntilDeadline days';
       } else {
         continue; // Too far away
       }
@@ -329,7 +329,7 @@ class NudgeService {
         type: NudgeType.meetingFollowUp,
         priority: NudgePriority.medium,
         title: 'Meeting follow-up',
-        message: 'Consider following up on the meeting from ${daysSinceMeeting} days ago',
+        message: 'Consider following up on the meeting from $daysSinceMeeting days ago',
         suggestedAction: 'Send meeting recap or action items',
         createdAt: now,
         actionData: {
