@@ -176,6 +176,13 @@ class EmailProvider extends ChangeNotifier {
     if (_currentAccount != null) {
       _loadAccountCachedEmails(_currentAccount!.id, _currentFolder);
       debugPrint('EmailProvider: Loaded ${_messages.length} cached emails for immediate display');
+
+      // If no emails were loaded for this account, fall back to all cached emails for offline access
+      if (_messages.isEmpty) {
+        debugPrint('EmailProvider: No emails found for account, falling back to all cached emails');
+        _loadAllCachedEmails();
+        debugPrint('EmailProvider: Fallback loaded ${_messages.length} cached emails');
+      }
     } else {
       // Even without accounts, show any cached emails that might exist
       _loadAllCachedEmails();
@@ -1272,15 +1279,38 @@ class EmailProvider extends ChangeNotifier {
       debugPrint('EmailProvider: Available account IDs in cache: ${_accountEmailCache.keys.toList()}');
 
       // Get emails from fast in-memory cache
-      final cachedEmails = _accountEmailCache[accountId]?[folder] ?? [];
+      List<EmailMessage> cachedEmails = _accountEmailCache[accountId]?[folder] ?? [];
+
+      // If no emails found for exact account ID, try to find by email address
+      if (cachedEmails.isEmpty && _currentAccount != null) {
+        debugPrint('EmailProvider: No emails found for exact account ID, searching by email...');
+
+        // Try to find emails by email address instead of account ID
+        for (final accountCache in _accountEmailCache.values) {
+          final folderEmails = accountCache[folder] ?? [];
+          final matchingEmails = folderEmails.where((email) =>
+            email.from.contains(_currentAccount!.email) ||
+            email.to.any((to) => to.contains(_currentAccount!.email))
+          ).toList();
+
+          if (matchingEmails.isNotEmpty) {
+            cachedEmails = matchingEmails;
+            debugPrint('EmailProvider: Found ${matchingEmails.length} emails by email matching');
+            break;
+          }
+        }
+      }
+
       _messages = List.from(cachedEmails);
 
-      // Verify account isolation
-      final wrongAccountEmails = _messages.where((email) => email.accountId != accountId).toList();
-      if (wrongAccountEmails.isNotEmpty) {
-        debugPrint('WARNING: Found ${wrongAccountEmails.length} emails from wrong account!');
-        // Filter out emails from wrong accounts as a safety measure
-        _messages = _messages.where((email) => email.accountId == accountId).toList();
+      // Verify account isolation (only if we have exact account match)
+      if (_accountEmailCache.containsKey(accountId)) {
+        final wrongAccountEmails = _messages.where((email) => email.accountId != accountId).toList();
+        if (wrongAccountEmails.isNotEmpty) {
+          debugPrint('WARNING: Found ${wrongAccountEmails.length} emails from wrong account!');
+          // Filter out emails from wrong accounts as a safety measure
+          _messages = _messages.where((email) => email.accountId == accountId).toList();
+        }
       }
 
       // Verify folder isolation
