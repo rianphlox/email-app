@@ -1294,6 +1294,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                  fontWeight: message.isRead ? FontWeight.normal : FontWeight.w600,
                                 ),
                               ),
                             ],
@@ -1558,6 +1559,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                  fontWeight: message.isRead ? FontWeight.normal : FontWeight.w600,
                                 ),
                               ),
                             ],
