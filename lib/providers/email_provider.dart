@@ -541,7 +541,17 @@ class EmailProvider extends ChangeNotifier {
       // Reset infinite scroll state
       _resetInfiniteScroll();
 
+      // IMMEDIATELY clear current content to prevent showing wrong folder
+      if (_conversationMode) {
+        _conversations.clear();
+      } else {
+        _messages.clear();
+      }
+
       _currentFolder = folder;
+
+      // Notify UI immediately with cleared content (shows empty state)
+      notifyListeners();
 
       // INSTANT LOAD: Load cached emails or conversations for the new folder instantly
       if (_currentAccount != null) {
@@ -559,7 +569,7 @@ class EmailProvider extends ChangeNotifier {
         _loadAllCachedEmailsForFolder(folder);
       }
 
-      // Notify UI immediately with cached content
+      // Notify UI again with new folder content
       notifyListeners();
 
       // Debounced background sync to avoid interfering with instant switching
