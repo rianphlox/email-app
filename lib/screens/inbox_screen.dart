@@ -9,6 +9,7 @@ import '../screens/email_detail_screen.dart';
 import '../screens/compose_screen.dart';
 import '../services/email_categorizer.dart';
 import '../widgets/conversation_item.dart';
+import '../widgets/shimmer_loading.dart';
 import '../utils/date_utils.dart';
 import '../utils/preview_extractor.dart';
 import '../widgets/snooze_dialog.dart';
@@ -27,6 +28,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   bool _isSearchMode = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
 
   final List<EmailCategory> _categories = [
@@ -39,6 +41,22 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
   void initState() {
     super.initState();
     _tabController = TabController(length: _categories.length, vsync: this);
+    _scrollController.addListener(_scrollListener);
+  }
+
+  /// Listens to scroll events and triggers loading more emails at 80% scroll
+  void _scrollListener() {
+    if (_scrollController.hasClients) {
+      final threshold = 0.8; // Trigger at 80% scroll
+      final position = _scrollController.position;
+
+      if (position.pixels / position.maxScrollExtent >= threshold) {
+        final emailProvider = context.read<provider.EmailProvider>();
+        if (emailProvider.hasMoreEmails && !emailProvider.isLoadingMore) {
+          emailProvider.loadMoreEmails();
+        }
+      }
+    }
   }
 
   /// Starts background sync after cached emails are shown
@@ -111,6 +129,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
     _tabController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -290,6 +309,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
               strokeWidth: 2.5,
               triggerMode: RefreshIndicatorTriggerMode.onEdge,
               child: CustomScrollView(
+                controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(
                   parent: BouncingScrollPhysics(),
                 ),
@@ -341,6 +361,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
               strokeWidth: 2.5,
               triggerMode: RefreshIndicatorTriggerMode.onEdge,
               child: CustomScrollView(
+                controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(
                   parent: BouncingScrollPhysics(),
                 ),
@@ -402,8 +423,17 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
 
           // PRIORITY 3: Show loading when we have accounts but no cached emails yet
           if (emailProvider.isLoading) {
-            debugPrint('⏳ UI: Showing loading indicator');
-            return const Center(child: CircularProgressIndicator());
+            debugPrint('⏳ UI: Showing loading shimmer');
+            return RefreshIndicator(
+              onRefresh: _handleRefresh,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: ShimmerLoading.conversationList(
+                  itemCount: 7,
+                  isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                ),
+              ),
+            );
           }
 
           // PRIORITY 4: Show error only if we have accounts but no cached emails and there's an error
