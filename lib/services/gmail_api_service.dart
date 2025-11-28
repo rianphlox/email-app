@@ -235,11 +235,81 @@ class GmailApiService {
     }
 
     try {
-      // ... (implementation for sending email)
+      debugPrint('📤 Gmail: Sending email to $to');
+      debugPrint('📤 Gmail: Subject: $subject');
+
+      // Create the email message in RFC 2822 format
+      String rawMessage = _createRawMessage(
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        subject: subject,
+        body: body,
+      );
+
+      debugPrint('📤 Gmail: Created raw message (${rawMessage.length} characters)');
+
+      // Encode the message
+      final encodedMessage = base64Url.encode(utf8.encode(rawMessage));
+
+      // Create the Gmail message object
+      final gmailMessage = gmail.Message()
+        ..raw = encodedMessage;
+
+      // Send the email
+      await _gmailApi!.users.messages.send(gmailMessage, 'me');
+
+      debugPrint('✅ Gmail: Email sent successfully');
+      return true;
     } catch (e) {
+      debugPrint('❌ Gmail: Failed to send email: $e');
       return false;
     }
-    return false;
+  }
+
+  /// Creates a raw email message in RFC 2822 format
+  String _createRawMessage({
+    required String to,
+    String? cc,
+    String? bcc,
+    required String subject,
+    required String body,
+  }) {
+    final buffer = StringBuffer();
+
+    // Format the current date in RFC 2822 format
+    final now = DateTime.now();
+    final dateString = '${_getWeekday(now.weekday)}, ${now.day} ${_getMonth(now.month)} ${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} +0000';
+
+    // Required headers
+    buffer.writeln('To: $to');
+    if (cc != null && cc.isNotEmpty) {
+      buffer.writeln('Cc: $cc');
+    }
+    if (bcc != null && bcc.isNotEmpty) {
+      buffer.writeln('Bcc: $bcc');
+    }
+    buffer.writeln('Subject: $subject');
+    buffer.writeln('Content-Type: text/plain; charset=utf-8');
+    buffer.writeln('Content-Transfer-Encoding: 7bit');
+    buffer.writeln('Date: $dateString');
+    buffer.writeln('MIME-Version: 1.0');
+    buffer.writeln();
+    buffer.write(body);
+
+    return buffer.toString();
+  }
+
+  /// Helper method to get weekday name
+  String _getWeekday(int weekday) {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return weekdays[weekday - 1];
+  }
+
+  /// Helper method to get month name
+  String _getMonth(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[month - 1];
   }
 
   /// Marks an email as read.
