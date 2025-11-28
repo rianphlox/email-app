@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'providers/email_provider.dart';
 import 'screens/inbox_screen.dart';
 import 'services/oauth_callback_handler.dart';
@@ -177,6 +178,17 @@ class _QMailAppState extends State<QMailApp> {
         theme: _buildTheme(Brightness.light),
         darkTheme: _buildTheme(Brightness.dark),
         themeMode: ThemeMode.system,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('en', 'US'),
+          Locale('es', 'ES'),
+          Locale('fr', 'FR'),
+          Locale('de', 'DE'),
+        ],
         home: const _SplashScreen(),
       );
     }
@@ -190,6 +202,17 @@ class _QMailAppState extends State<QMailApp> {
         theme: _buildTheme(Brightness.light),
         darkTheme: _buildTheme(Brightness.dark),
         themeMode: ThemeMode.system,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('en', 'US'),
+          Locale('es', 'ES'),
+          Locale('fr', 'FR'),
+          Locale('de', 'DE'),
+        ],
         home: const InboxScreen(),
       ),
     );

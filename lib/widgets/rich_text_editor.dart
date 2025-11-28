@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 /// A rich text editor widget for composing emails with formatting options
 class RichTextEditor extends StatefulWidget {
@@ -78,76 +79,84 @@ class _RichTextEditorState extends State<RichTextEditor> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Formatting toolbar
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
-              ),
-            ),
-          ),
-          child: QuillSimpleToolbar(
-            controller: _controller,
-            config: const QuillSimpleToolbarConfig(
-              multiRowsDisplay: false,
-              showFontFamily: false,
-              showFontSize: false,
-              showSubscript: false,
-              showSuperscript: false,
-              showStrikeThrough: false,
-              showInlineCode: false,
-              showColorButton: false,
-              showBackgroundColorButton: false,
-              showClearFormat: true,
-              showAlignmentButtons: true,
-              showLeftAlignment: true,
-              showCenterAlignment: true,
-              showRightAlignment: true,
-              showJustifyAlignment: false,
-              showHeaderStyle: false,
-              showListNumbers: true,
-              showListBullets: true,
-              showCodeBlock: false,
-              showQuote: true,
-              showIndent: true,
-              showLink: true,
-              showUndo: true,
-              showRedo: true,
-              showSearchButton: false,
-            ),
-          ),
-        ),
-
-        // Editor area
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(16),
+    return Localizations(
+      locale: const Locale('en', 'US'),
+      delegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      child: Column(
+        children: [
+          // Formatting toolbar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+                ),
               ),
-              borderRadius: BorderRadius.circular(8),
             ),
-            child: QuillEditor.basic(
+            child: QuillSimpleToolbar(
               controller: _controller,
-              focusNode: _focusNode,
-              config: QuillEditorConfig(
-                placeholder: widget.hintText ?? 'Compose your message...',
-                padding: EdgeInsets.zero,
-                autoFocus: false,
-                expands: true,
-                scrollable: true,
+              config: const QuillSimpleToolbarConfig(
+                multiRowsDisplay: false,
+                showFontFamily: false,
+                showFontSize: false,
+                showSubscript: false,
+                showSuperscript: false,
+                showStrikeThrough: false,
+                showInlineCode: false,
+                showColorButton: false,
+                showBackgroundColorButton: false,
+                showClearFormat: true,
+                showAlignmentButtons: true,
+                showLeftAlignment: true,
+                showCenterAlignment: true,
+                showRightAlignment: true,
+                showJustifyAlignment: false,
+                showHeaderStyle: false,
+                showListNumbers: true,
+                showListBullets: true,
+                showCodeBlock: false,
+                showQuote: true,
+                showIndent: true,
+                showLink: true,
+                showUndo: true,
+                showRedo: true,
+                showSearchButton: false,
               ),
             ),
           ),
-        ),
-      ],
+
+          // Editor area
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: QuillEditor.basic(
+                controller: _controller,
+                focusNode: _focusNode,
+                config: QuillEditorConfig(
+                  placeholder: widget.hintText ?? 'Compose your message...',
+                  padding: EdgeInsets.zero,
+                  autoFocus: false,
+                  expands: true,
+                  scrollable: true,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
