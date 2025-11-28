@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import '../utils/flutter_quill_localizations_delegate.dart';
 
 /// A rich text editor widget for composing emails with formatting options
 class RichTextEditor extends StatefulWidget {
@@ -85,6 +86,7 @@ class _RichTextEditorState extends State<RichTextEditor> {
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
+        FlutterQuillLocalizationsDelegate(),
       ],
       child: Column(
         children: [

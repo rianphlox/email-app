@@ -6,6 +6,7 @@ import 'screens/inbox_screen.dart';
 import 'services/oauth_callback_handler.dart';
 import 'services/auth_service.dart';
 import 'widgets/yahoo_app_password_dialog.dart';
+import 'utils/flutter_quill_localizations_delegate.dart';
 
 /// The main entry point of the QMail application.
 ///
@@ -182,6 +183,7 @@ class _QMailAppState extends State<QMailApp> {
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
+          FlutterQuillLocalizationsDelegate(),
         ],
         supportedLocales: const [
           Locale('en', 'US'),
@@ -206,6 +208,7 @@ class _QMailAppState extends State<QMailApp> {
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
+          FlutterQuillLocalizationsDelegate(),
         ],
         supportedLocales: const [
           Locale('en', 'US'),
