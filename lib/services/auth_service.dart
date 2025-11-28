@@ -93,6 +93,7 @@ class AuthService {
         accessToken: googleAuth.accessToken!,
         refreshToken: googleAuth.idToken,
         lastSync: DateTime.now(),
+        profilePictureUrl: googleUser.photoUrl,
       );
 
       debugPrint('🔐 AuthService: Created EmailAccount object for: ${account.email}');
@@ -163,7 +164,7 @@ class AuthService {
   /// if successful.
   Future<EmailAccount?> signInWithYahoo() async {
     try {
-      final yahooOAuth = YahooOAuthService();
+      final yahooOAuth = YahooOAuthService.instance;
 
       // Launch OAuth flow
       final launched = await yahooOAuth.launchOAuthFlow();
@@ -190,7 +191,7 @@ class AuthService {
   /// This should be called when your app receives the OAuth callback.
   Future<EmailAccount?> completeYahooSignIn(String callbackUrl) async {
     try {
-      final yahooOAuth = YahooOAuthService();
+      final yahooOAuth = YahooOAuthService.instance;
 
       // Handle the OAuth callback and get tokens
       final tokens = await yahooOAuth.handleAuthorizationCallback(callbackUrl);
@@ -203,19 +204,33 @@ class AuthService {
 
       // Initialize Yahoo API service
       _yahooApiService = YahooApiService();
-      final connected = await _yahooApiService!.connectWithTokens(
-        accessToken,
-        refreshToken,
-      );
+      try {
+        final connected = await _yahooApiService!.connectWithTokens(
+          accessToken,
+          refreshToken,
+        );
 
-      if (!connected) {
-        throw Exception('Failed to connect to Yahoo Mail API');
+        if (connected) {
+          debugPrint('✅ Yahoo: IMAP connection successful');
+        } else {
+          debugPrint('⚠️ Yahoo: IMAP connection failed - continuing with profile access only');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Yahoo: IMAP connection failed: $e');
+        debugPrint('⚠️ Yahoo: Creating account with profile access only');
+        // Don't throw error - we can still create the account
       }
+
+      // Always register the service for basic functionality
+      setYahooApiService(_yahooApiService!);
 
       // Get user profile information
       final userProfile = await _yahooApiService!.getUserProfile();
       final userName = userProfile['name'] ?? 'Yahoo User';
       final userEmail = userProfile['email'] ?? 'user@yahoo.com';
+
+      debugPrint('✅ Yahoo: OAuth completed successfully for $userEmail');
+      debugPrint('⚠️ Yahoo: App password required for full email access');
 
       // Create account with actual user info
       final account = EmailAccount(

@@ -132,6 +132,9 @@ class GmailApiService {
         case EmailFolder.archive:
           folderQuery = 'in:all -in:inbox -in:sent -in:drafts -in:trash -in:spam';
           break;
+        case EmailFolder.starred:
+          folderQuery = 'is:starred';
+          break;
         case EmailFolder.custom:
           folderQuery = 'in:inbox'; // Default to inbox for custom folders
           break;

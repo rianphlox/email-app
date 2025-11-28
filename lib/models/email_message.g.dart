@@ -165,6 +165,8 @@ class EmailFolderAdapter extends TypeAdapter<EmailFolder> {
         return EmailFolder.spam;
       case 5:
         return EmailFolder.archive;
+      case 7:
+        return EmailFolder.starred;
       case 6:
         return EmailFolder.custom;
       default:
@@ -192,6 +194,9 @@ class EmailFolderAdapter extends TypeAdapter<EmailFolder> {
         break;
       case EmailFolder.archive:
         writer.writeByte(5);
+        break;
+      case EmailFolder.starred:
+        writer.writeByte(7);
         break;
       case EmailFolder.custom:
         writer.writeByte(6);

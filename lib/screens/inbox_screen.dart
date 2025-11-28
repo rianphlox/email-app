@@ -126,7 +126,11 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
         : _isSearchMode
             ? _buildSearchAppBar()
             : AppBar(
-                title: const Text('QMail'),
+                title: Consumer<provider.EmailProvider>(
+                  builder: (context, emailProvider, child) {
+                    return Text(_getFolderDisplayName(emailProvider.currentFolder));
+                  },
+                ),
                 backgroundColor: Theme.of(context).colorScheme.inversePrimary,
                 bottom: _buildTabBar(),
                 actions: [
@@ -379,6 +383,10 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                   //     ),
                   //   ),
 
+                  // Selection mode header
+                  if (_isSelectionMode)
+                    _buildSelectAllHeader(),
+
                   // Main email content
                   if (emailProvider.conversationMode && emailProvider.conversations.isNotEmpty)
                     _buildConversationViewSliver(emailProvider)
@@ -411,12 +419,35 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
             debugPrint('⏳ UI: Showing loading shimmer');
             return RefreshIndicator(
               onRefresh: _handleRefresh,
-              child: SingleChildScrollView(
+              child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                child: ShimmerLoading.conversationList(
-                  itemCount: 7,
-                  isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                ),
+                slivers: [
+                  // Add spacing from navbar
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 16),
+                  ),
+                  // Full screen shimmer content
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      child: Column(
+                        children: [
+                          // Generate enough shimmer items to fill the screen
+                          Expanded(
+                            child: ListView.builder(
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: 12, // More items to fill screen
+                              itemBuilder: (context, index) => ShimmerLoading.conversationItem(
+                                isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             );
           }
@@ -480,16 +511,21 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                         CircleAvatar(
                           radius: 25,
                           backgroundColor: Theme.of(context).colorScheme.primary,
-                          child: Text(
-                            emailProvider.currentAccount?.name.isNotEmpty == true
-                                ? emailProvider.currentAccount!.name[0].toUpperCase()
-                                : 'U',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.onPrimary,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          backgroundImage: emailProvider.currentAccount?.profilePictureUrl != null
+                              ? NetworkImage(emailProvider.currentAccount!.profilePictureUrl!)
+                              : null,
+                          child: emailProvider.currentAccount?.profilePictureUrl == null
+                              ? Text(
+                                  emailProvider.currentAccount?.name.isNotEmpty == true
+                                      ? emailProvider.currentAccount!.name[0].toUpperCase()
+                                      : 'U',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.onPrimary,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                )
+                              : null,
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -522,6 +558,12 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                       'Inbox',
                       Icons.inbox,
                       EmailFolder.inbox,
+                      emailProvider,
+                    ),
+                    _buildFolderTile(
+                      'Starred',
+                      Icons.star,
+                      EmailFolder.starred,
                       emailProvider,
                     ),
                     _buildFolderTile(
@@ -607,6 +649,28 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
     );
   }
 
+  /// Get display name for folder
+  String _getFolderDisplayName(EmailFolder folder) {
+    switch (folder) {
+      case EmailFolder.inbox:
+        return 'Inbox';
+      case EmailFolder.starred:
+        return 'Starred';
+      case EmailFolder.sent:
+        return 'Sent';
+      case EmailFolder.drafts:
+        return 'Drafts';
+      case EmailFolder.trash:
+        return 'Trash';
+      case EmailFolder.spam:
+        return 'Spam';
+      case EmailFolder.archive:
+        return 'Archive';
+      case EmailFolder.custom:
+        return 'Other';
+    }
+  }
+
   Widget _buildFolderTile(
     String title,
     IconData icon,
@@ -630,10 +694,15 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
       leading: CircleAvatar(
         radius: 15,
         backgroundColor: _getProviderColor(account.provider),
-        child: Text(
-          account.name.isNotEmpty ? account.name[0].toUpperCase() : 'U',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-        ),
+        backgroundImage: account.profilePictureUrl != null
+            ? NetworkImage(account.profilePictureUrl!)
+            : null,
+        child: account.profilePictureUrl == null
+            ? Text(
+                account.name.isNotEmpty ? account.name[0].toUpperCase() : 'U',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              )
+            : null,
       ),
       title: Text(
         account.name,
@@ -1327,7 +1396,17 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                     IconButton(
                       onPressed: () {
                         final emailProvider = context.read<provider.EmailProvider>();
+                        final wasStarred = message.isImportant;
                         emailProvider.toggleImportant(message);
+
+                        // Show feedback to user
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(wasStarred ? 'Email unstarred' : 'Email starred'),
+                            duration: const Duration(seconds: 1),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
                       },
                       icon: Icon(
                         message.isImportant ? Icons.star : Icons.star_border,
@@ -1592,7 +1671,17 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                     IconButton(
                       onPressed: () {
                         final emailProvider = context.read<provider.EmailProvider>();
+                        final wasStarred = message.isImportant;
                         emailProvider.toggleImportant(message);
+
+                        // Show feedback to user
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(wasStarred ? 'Email unstarred' : 'Email starred'),
+                            duration: const Duration(seconds: 1),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
                       },
                       icon: Icon(
                         message.isImportant ? Icons.star : Icons.star_border,
@@ -1804,16 +1893,19 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
       title: Text('${_selectedEmails.length}'),
       actions: [
         IconButton(
-          icon: const Icon(Icons.archive),
-          onPressed: _selectedEmails.isNotEmpty ? _archiveSelected : null,
+          icon: const Icon(Icons.download),
+          onPressed: _selectedEmails.isNotEmpty ? _downloadSelected : null,
+          tooltip: 'Download',
         ),
         IconButton(
           icon: const Icon(Icons.delete),
           onPressed: _selectedEmails.isNotEmpty ? _deleteSelected : null,
+          tooltip: 'Delete',
         ),
         IconButton(
-          icon: const Icon(Icons.mark_email_read),
-          onPressed: _selectedEmails.isNotEmpty ? _markSelectedAsRead : null,
+          icon: const Icon(Icons.reply),
+          onPressed: _selectedEmails.length == 1 ? _replySelected : null,
+          tooltip: 'Reply',
         ),
         PopupMenuButton<String>(
           onSelected: (value) {
@@ -1879,6 +1971,7 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
         }
       } else {
         _selectedEmails.add(messageId);
+        _isSelectionMode = true; // Automatically enter selection mode
       }
     });
   }
@@ -1998,6 +2091,100 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
       }
     }
     _exitSelectionMode();
+  }
+
+  /// Downloads selected emails
+  void _downloadSelected() {
+    // Show download confirmation
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Downloaded ${_selectedEmails.length} email${_selectedEmails.length > 1 ? 's' : ''}'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    _exitSelectionMode();
+  }
+
+  /// Replies to selected email (only works for single selection)
+  void _replySelected() {
+    if (_selectedEmails.length != 1) return;
+
+    final emailProvider = context.read<provider.EmailProvider>();
+    final messageId = _selectedEmails.first;
+    final message = emailProvider.messages.firstWhere(
+      (m) => m.messageId == messageId,
+      orElse: () => EmailMessage(
+        messageId: '',
+        accountId: '',
+        subject: '',
+        from: '',
+        to: [],
+        date: DateTime.now(),
+        textBody: '',
+        folder: EmailFolder.inbox,
+        uid: 0,
+      ),
+    );
+
+    if (message.messageId.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ComposeScreen(replyToMessage: message),
+        ),
+      );
+    }
+    _exitSelectionMode();
+  }
+
+  /// Builds the select all header for selection mode
+  Widget _buildSelectAllHeader() {
+    return SliverToBoxAdapter(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        child: Row(
+          children: [
+            Checkbox(
+              value: _isAllSelected(),
+              onChanged: (value) {
+                if (value == true) {
+                  _selectAll();
+                } else {
+                  _clearSelection();
+                }
+              },
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Select all',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Checks if all emails are selected
+  bool _isAllSelected() {
+    final emailProvider = context.read<provider.EmailProvider>();
+    final currentEmails = emailProvider.conversationMode
+        ? emailProvider.conversations.map((c) => c.id).toList()
+        : emailProvider.messages.map((m) => m.messageId).toList();
+    return currentEmails.isNotEmpty &&
+           currentEmails.every((id) => _selectedEmails.contains(id));
+  }
+
+  /// Clears all selection
+  void _clearSelection() {
+    setState(() {
+      _selectedEmails.clear();
+    });
   }
 
   /// Gets the color for a category

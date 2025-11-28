@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'providers/email_provider.dart';
 import 'screens/inbox_screen.dart';
 import 'services/oauth_callback_handler.dart';
+import 'services/auth_service.dart';
+import 'widgets/yahoo_app_password_dialog.dart';
 
 /// The main entry point of the QMail application.
 ///
@@ -43,14 +45,20 @@ class _QMailAppState extends State<QMailApp> {
         if (_emailProvider != null) {
           try {
             await _emailProvider!.addAccount(account);
-            // Show success message
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Yahoo account ${account.email} added successfully!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+
+            // For Yahoo accounts, show app password dialog for full email access
+            if (account.provider.name == 'yahoo') {
+              await _handleYahooAppPasswordSetup(account);
+            } else {
+              // Show success message for other providers
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Account ${account.email} added successfully!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
             }
           } catch (e) {
             debugPrint('Failed to add account: $e');
@@ -77,6 +85,73 @@ class _QMailAppState extends State<QMailApp> {
         }
       },
     );
+  }
+
+  /// Handles Yahoo App Password setup for full email access
+  Future<void> _handleYahooAppPasswordSetup(dynamic account) async {
+    try {
+      if (!mounted) return;
+
+      // Show the app password dialog
+      final appPassword = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => YahooAppPasswordDialog(userEmail: account.email),
+      );
+
+      if (appPassword != null && appPassword.isNotEmpty) {
+        // Get the Yahoo service and set the app password
+        final yahooService = AuthService.getYahooApiService();
+        if (yahooService != null) {
+          yahooService.setAppPassword(appPassword);
+
+          // Test the IMAP connection
+          try {
+            // Force a refresh to test the connection and fetch emails
+            if (mounted) {
+              await _emailProvider?.syncEmails();
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Yahoo Mail access enabled for ${account.email}!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('App password connection failed: $e'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          }
+        }
+      } else {
+        // User cancelled - show limited access message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yahoo account ${account.email} added with limited access. Set up App Password later for full email access.'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error in Yahoo app password setup: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Setup failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _initializeApp() async {

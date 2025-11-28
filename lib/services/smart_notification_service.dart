@@ -32,6 +32,11 @@ class SmartNotificationService {
   static FlutterLocalNotificationsPlugin? _notificationsPlugin;
   static bool _isInitialized = false;
 
+  // Callback functions for notification actions
+  static Function(String emailId, String accountId)? _onEmailOpenRequested;
+  static Function(String emailId, String accountId)? _onMarkReadRequested;
+  static Function(String emailId, String accountId)? _onReplyRequested;
+
   /// Smart notification settings
   static final Map<NotificationCategory, Map<String, dynamic>> _categorySettings = {
     NotificationCategory.urgent: {
@@ -123,6 +128,21 @@ class SmartNotificationService {
       'progress', 'reminder', 'ping', 'touching base'
     ],
   };
+
+  /// Register callback for when notification is tapped to open an email
+  static void setEmailOpenCallback(Function(String emailId, String accountId) callback) {
+    _onEmailOpenRequested = callback;
+  }
+
+  /// Register callback for when notification action is tapped to mark email as read
+  static void setMarkReadCallback(Function(String emailId, String accountId) callback) {
+    _onMarkReadRequested = callback;
+  }
+
+  /// Register callback for when notification action is tapped to reply to email
+  static void setReplyCallback(Function(String emailId, String accountId) callback) {
+    _onReplyRequested = callback;
+  }
 
   /// Initialize the notification service
   static Future<void> initialize() async {
@@ -371,7 +391,7 @@ class SmartNotificationService {
         notification.title,
         notification.body,
         details,
-        payload: notification.emailId,
+        payload: '${notification.emailId}|${notification.accountId}',
       );
 
       debugPrint('📱 Sent notification: ${notification.title}');
@@ -633,23 +653,43 @@ class SmartNotificationService {
   }
 
   static void _handleReplyAction(String payload) {
-    // Navigate to compose screen with reply context
-    debugPrint('🔔 Opening reply for: $payload');
+    final parts = payload.split('|');
+    if (parts.length >= 2) {
+      final emailId = parts[0];
+      final accountId = parts[1];
+      debugPrint('🔔 Opening reply for email: $emailId, account: $accountId');
+      _onReplyRequested?.call(emailId, accountId);
+    }
   }
 
   static void _handleMarkReadAction(String payload) {
-    // Mark email as read
-    debugPrint('🔔 Marking as read: $payload');
+    final parts = payload.split('|');
+    if (parts.length >= 2) {
+      final emailId = parts[0];
+      final accountId = parts[1];
+      debugPrint('🔔 Marking as read - email: $emailId, account: $accountId');
+      _onMarkReadRequested?.call(emailId, accountId);
+    }
   }
 
   static void _handleOpenAction(String payload) {
-    // Open email detail screen
-    debugPrint('🔔 Opening email: $payload');
+    final parts = payload.split('|');
+    if (parts.length >= 2) {
+      final emailId = parts[0];
+      final accountId = parts[1];
+      debugPrint('🔔 Opening email: $emailId, account: $accountId');
+      _onEmailOpenRequested?.call(emailId, accountId);
+    }
   }
 
   static void _handleDefaultAction(String payload) {
-    // Default action - open app
-    debugPrint('🔔 Opening app for: $payload');
+    final parts = payload.split('|');
+    if (parts.length >= 2) {
+      final emailId = parts[0];
+      final accountId = parts[1];
+      debugPrint('🔔 Default action - opening email: $emailId, account: $accountId');
+      _onEmailOpenRequested?.call(emailId, accountId);
+    }
   }
 
   /// Clear all notifications

@@ -30,13 +30,14 @@ class EmailAccountAdapter extends TypeAdapter<EmailAccount> {
       smtpPort: fields[10] as int?,
       isSSL: fields[11] as bool,
       password: fields[12] as String?,
+      profilePictureUrl: fields[13] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, EmailAccount obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -62,7 +63,9 @@ class EmailAccountAdapter extends TypeAdapter<EmailAccount> {
       ..writeByte(11)
       ..write(obj.isSSL)
       ..writeByte(12)
-      ..write(obj.password);
+      ..write(obj.password)
+      ..writeByte(13)
+      ..write(obj.profilePictureUrl);
   }
 
   @override

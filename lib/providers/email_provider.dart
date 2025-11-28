@@ -17,6 +17,7 @@ import '../services/advanced_email_cache_service.dart';
 import '../services/cache_maintenance_service.dart';
 import '../models/conversation.dart';
 import '../services/spam_detection_service.dart';
+import '../services/smart_notification_service.dart';
 
 /// A provider class that manages the state of the email application.
 ///
@@ -121,6 +122,13 @@ class EmailProvider extends ChangeNotifier {
     // Initialize advanced cache service
     await _cacheService.initialize();
     debugPrint('EmailProvider: Advanced cache service initialized');
+
+    // Initialize notification service
+    await SmartNotificationService.initialize();
+    debugPrint('EmailProvider: Smart notification service initialized');
+
+    // Register notification callbacks
+    _setupNotificationCallbacks();
 
     // Register Hive adapters for data models.
     if (!Hive.isAdapterRegistered(0)) {
@@ -500,6 +508,17 @@ class EmailProvider extends ChangeNotifier {
     notifyListeners();
     debugPrint('EmailProvider: INSTANT switch complete for ${account.email} - ${_conversationMode ? _conversations.length : _messages.length} items shown');
 
+    // Initialize Gmail service for Gmail accounts (in background)
+    if (account.provider == models.EmailProvider.gmail) {
+      debugPrint('EmailProvider: Initializing Gmail service for account switch...');
+      // Start initialization in background, but don't await to keep UI responsive
+      _initializeGmailForAccount(account).then((_) {
+        debugPrint('EmailProvider: Gmail service initialization completed for ${account.email}');
+      }).catchError((error) {
+        debugPrint('EmailProvider: Gmail service initialization failed for ${account.email}: $error');
+      });
+    }
+
     // Start background sync for this account (non-blocking)
     _scheduleBackgroundSync();
 
@@ -507,26 +526,43 @@ class EmailProvider extends ChangeNotifier {
     _preloadCommonFolders(account);
   }
 
-  /// Pre-loads common folders for instant folder switching
+  /// Pre-loads ALL folders for instant folder switching
   void _preloadCommonFolders(models.EmailAccount account) {
-    final commonFolders = [EmailFolder.inbox, EmailFolder.sent, EmailFolder.drafts, EmailFolder.spam];
+    // Include all folders for complete caching
+    final allFolders = [
+      EmailFolder.inbox,
+      EmailFolder.sent,
+      EmailFolder.drafts,
+      EmailFolder.trash,
+      EmailFolder.spam,
+      EmailFolder.archive,
+      // Note: starred emails are filtered from inbox, no separate fetching needed
+    ];
 
-    // Schedule folder preloading after a short delay
-    Future.delayed(const Duration(seconds: 2), () async {
-      for (final folder in commonFolders) {
+    // Start preloading immediately with shorter delay
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      debugPrint('📂 EmailProvider: Starting comprehensive folder pre-loading for ${account.email}...');
+
+      for (final folder in allFolders) {
         if (_currentAccount?.id == account.id && folder != _currentFolder) {
           try {
-            debugPrint('EmailProvider: Pre-loading folder ${folder.name} for instant switching...');
-            final emails = await _fetchEmailsForAccount(account, folder, limit: 25);
+            debugPrint('📂 EmailProvider: Pre-loading ${folder.name} folder (50 emails)...');
+
+            // Fetch more emails per folder for better caching (50 instead of 25)
+            final emails = await _fetchEmailsForAccount(account, folder, limit: 50);
             _mergeEmailsWithCache(account.id, folder, emails);
+
+            debugPrint('✅ EmailProvider: Successfully cached ${emails.length} emails for ${folder.name}');
           } catch (e) {
-            debugPrint('EmailProvider: Error pre-loading folder ${folder.name}: $e');
+            debugPrint('❌ EmailProvider: Error pre-loading ${folder.name}: $e');
           }
 
-          // Small delay between folder loads to avoid overwhelming the server
-          await Future.delayed(const Duration(milliseconds: 500));
+          // Shorter delay between folders for faster preloading
+          await Future.delayed(const Duration(milliseconds: 200));
         }
       }
+
+      debugPrint('🎯 EmailProvider: Folder pre-loading completed for ${account.email}');
     });
   }
 
@@ -541,6 +577,9 @@ class EmailProvider extends ChangeNotifier {
       // Reset infinite scroll state
       _resetInfiniteScroll();
 
+      // Set loading state for folder transition
+      setLoading(true);
+
       // IMMEDIATELY clear current content to prevent showing wrong folder
       if (_conversationMode) {
         _conversations.clear();
@@ -553,30 +592,99 @@ class EmailProvider extends ChangeNotifier {
       // Track folder access for intelligent caching
       _trackFolderAccess(folder);
 
-      // Notify UI immediately with cleared content (shows empty state)
+      // Notify UI immediately with cleared content (shows loading state)
       notifyListeners();
 
-      // INSTANT LOAD: Load cached emails or conversations for the new folder instantly
-      if (_currentAccount != null) {
-        if (_conversationMode) {
-          // Use synchronous method for instant folder switching
-          final cachedMessages = _accountEmailCache[_currentAccount!.id]?[folder] ?? [];
-          final accountMessages = cachedMessages.where((msg) => msg.accountId == _currentAccount!.id).toList();
-          _loadConversationsForCurrentContextSync(accountMessages, _currentAccount!.id);
-        } else {
-          // Load cached emails for current account and new folder instantly
-          _loadAccountCachedEmails(_currentAccount!.id, folder);
+      // Add a small delay for better UX (shows loading state briefly)
+      Future.delayed(const Duration(milliseconds: 150), () {
+        try {
+          // INSTANT LOAD: Load cached emails or conversations for the new folder
+          if (_currentAccount != null) {
+            if (_conversationMode) {
+              // Use synchronous method for instant folder switching
+              final cachedMessages = _getEmailsForFolder(_currentAccount!.id, folder);
+              _loadConversationsForCurrentContextSync(cachedMessages, _currentAccount!.id);
+
+              // If no cached conversations and we're online, trigger immediate fetch
+              if (_conversations.isEmpty && _connectivityManager.isOnline && folder != EmailFolder.starred) {
+                debugPrint('📂 EmailProvider: No cached emails for ${folder.name}, triggering immediate fetch...');
+                _fetchFolderInBackground(_currentAccount!, folder);
+              }
+            } else {
+              // Load cached emails for current account and new folder instantly
+              _loadAccountCachedEmails(_currentAccount!.id, folder);
+
+              // If no cached emails and we're online, trigger immediate fetch
+              if (_messages.isEmpty && _connectivityManager.isOnline && folder != EmailFolder.starred) {
+                debugPrint('📂 EmailProvider: No cached emails for ${folder.name}, triggering immediate fetch...');
+                _fetchFolderInBackground(_currentAccount!, folder);
+              }
+            }
+          } else {
+            // In offline mode, load all cached emails for this folder
+            _loadAllCachedEmailsForFolder(folder);
+          }
+
+          // Clear loading state
+          setLoading(false);
+
+          // Notify UI again with new folder content
+          notifyListeners();
+
+          // Debounced background sync to avoid interfering with instant switching
+          _scheduleOptimizedBackgroundSync();
+        } catch (e) {
+          debugPrint('Error switching folder: $e');
+          setError('Failed to load ${folder.name} folder');
+          setLoading(false);
         }
-      } else {
-        // In offline mode, load all cached emails for this folder
-        _loadAllCachedEmailsForFolder(folder);
+      });
+    }
+  }
+
+  /// Gets emails for a specific folder, handling special cases like starred emails.
+  List<EmailMessage> _getEmailsForFolder(String accountId, EmailFolder folder) {
+    if (folder == EmailFolder.starred) {
+      // For starred folder, get all important emails from ALL folders
+      final accountCache = _accountEmailCache[accountId];
+      if (accountCache == null) return [];
+
+      final allStarredEmails = <EmailMessage>[];
+      for (final folderMessages in accountCache.values) {
+        final folderStarredEmails = folderMessages.where((email) =>
+          email.isImportant && email.accountId == accountId
+        ).toList();
+        allStarredEmails.addAll(folderStarredEmails);
       }
 
-      // Notify UI again with new folder content
-      notifyListeners();
+      // Remove duplicates (in case same email exists in multiple folders)
+      final uniqueStarredEmails = <EmailMessage>[];
+      final seenIds = <String>{};
+      for (final email in allStarredEmails) {
+        if (!seenIds.contains(email.messageId)) {
+          seenIds.add(email.messageId);
+          uniqueStarredEmails.add(email);
+        }
+      }
 
-      // Debounced background sync to avoid interfering with instant switching
-      _scheduleOptimizedBackgroundSync();
+      // Sort by date (newest first)
+      uniqueStarredEmails.sort((a, b) => b.date.compareTo(a.date));
+
+      debugPrint('⭐ EmailProvider: Getting starred emails for account $accountId');
+      debugPrint('⭐ EmailProvider: Searched ${accountCache.length} folders');
+      debugPrint('⭐ EmailProvider: Found ${uniqueStarredEmails.length} starred emails');
+
+      if (uniqueStarredEmails.isNotEmpty) {
+        for (final email in uniqueStarredEmails.take(3)) {
+          debugPrint('⭐ EmailProvider: Starred email: "${email.subject}" (isImportant: ${email.isImportant})');
+        }
+      }
+
+      return uniqueStarredEmails;
+    } else {
+      // For other folders, get emails from the specific folder
+      final folderEmails = _accountEmailCache[accountId]?[folder] ?? [];
+      return folderEmails.where((email) => email.accountId == accountId).toList();
     }
   }
 
@@ -649,6 +757,11 @@ class EmailProvider extends ChangeNotifier {
             // Add new email to the list
             _messages.insert(0, newEmail);
             notifyListeners();
+
+            // Process notification for real-time email
+            if (_currentAccount != null) {
+              _processEmailNotifications([newEmail], _currentAccount!);
+            }
           },
         );
       }
@@ -836,7 +949,19 @@ class EmailProvider extends ChangeNotifier {
       // 1. Optimistic UI update - toggle immediately
       message.isImportant = !message.isImportant;
       await _messagesBox?.put(message.messageId, message);
+
+      // Update the cached email in all folders
+      _updateEmailInCache(message);
+
+      // If currently viewing starred folder, refresh the view
+      if (_currentFolder == EmailFolder.starred && _currentAccount != null) {
+        _loadAccountCachedEmails(_currentAccount!.id, EmailFolder.starred);
+      }
+
       notifyListeners();
+
+      debugPrint('⭐ EmailProvider: Email ${message.isImportant ? "starred" : "unstarred"}: ${message.subject}');
+      debugPrint('⭐ EmailProvider: Message ID: ${message.messageId}, Account ID: ${message.accountId}');
 
       // 2. Queue operation for server sync
       await _operationQueue.queueOperation(
@@ -852,6 +977,13 @@ class EmailProvider extends ChangeNotifier {
       // Rollback on failure
       message.isImportant = originalValue;
       await _messagesBox?.put(message.messageId, message);
+      _updateEmailInCache(message);
+
+      // Refresh starred view if needed
+      if (_currentFolder == EmailFolder.starred && _currentAccount != null) {
+        _loadAccountCachedEmails(_currentAccount!.id, EmailFolder.starred);
+      }
+
       notifyListeners();
       setError('Failed to toggle email importance: $e');
     }
@@ -1194,6 +1326,38 @@ class EmailProvider extends ChangeNotifier {
 
   // --- Private Helper Methods ---
 
+  /// Migrates cached emails from email-based account IDs to timestamp-based account IDs
+  Future<void> _migrateAccountIds(List<EmailMessage> allEmails) async {
+    try {
+      debugPrint('EmailProvider: Starting account ID migration...');
+
+      // Create a mapping from email addresses to current account IDs
+      final emailToAccountId = <String, String>{};
+      for (final account in _accounts) {
+        emailToAccountId[account.email] = account.id;
+      }
+
+      int migratedCount = 0;
+      for (final email in allEmails) {
+        // Check if the accountId looks like an email address (contains @)
+        if (email.accountId.contains('@')) {
+          final correctAccountId = emailToAccountId[email.accountId];
+          if (correctAccountId != null) {
+            debugPrint('EmailProvider: Migrating email "${email.subject}" from ${email.accountId} to $correctAccountId');
+            email.accountId = correctAccountId;
+            // Save the updated email back to Hive
+            await _messagesBox?.put(email.messageId, email);
+            migratedCount++;
+          }
+        }
+      }
+
+      debugPrint('EmailProvider: Account ID migration completed. Updated $migratedCount emails.');
+    } catch (e) {
+      debugPrint('EmailProvider: Error during account ID migration: $e');
+    }
+  }
+
   /// Pre-loads all cached emails into memory for fast access
   Future<void> _preloadAllCachedEmails() async {
     try {
@@ -1206,6 +1370,9 @@ class EmailProvider extends ChangeNotifier {
         debugPrint('EmailProvider: No cached emails found in Hive database');
         return;
       }
+
+      // Migrate account IDs from email addresses to timestamp-based IDs
+      await _migrateAccountIds(allEmails);
 
       // Group emails by account and folder for fast lookup
       for (final email in allEmails) {
@@ -1309,8 +1476,8 @@ class EmailProvider extends ChangeNotifier {
       // Debug: Print available accounts in cache
       debugPrint('EmailProvider: Available account IDs in cache: ${_accountEmailCache.keys.toList()}');
 
-      // Get emails from fast in-memory cache
-      List<EmailMessage> cachedEmails = _accountEmailCache[accountId]?[folder] ?? [];
+      // Get emails using the new helper method that handles starred folder
+      List<EmailMessage> cachedEmails = _getEmailsForFolder(accountId, folder);
 
       // If no emails found for exact account ID, try to find by email address
       if (cachedEmails.isEmpty && _currentAccount != null) {
@@ -1318,7 +1485,17 @@ class EmailProvider extends ChangeNotifier {
 
         // Try to find emails by email address instead of account ID
         for (final accountCache in _accountEmailCache.values) {
-          final folderEmails = accountCache[folder] ?? [];
+          List<EmailMessage> folderEmails;
+
+          if (folder == EmailFolder.starred) {
+            // For starred, get important emails from inbox
+            folderEmails = accountCache[EmailFolder.inbox] ?? [];
+            folderEmails = folderEmails.where((email) => email.isImportant).toList();
+          } else {
+            // For other folders, get emails from the specific folder
+            folderEmails = accountCache[folder] ?? [];
+          }
+
           final matchingEmails = folderEmails.where((email) =>
             email.from.contains(_currentAccount!.email) ||
             email.to.any((to) => to.contains(_currentAccount!.email))
@@ -1352,7 +1529,13 @@ class EmailProvider extends ChangeNotifier {
         _messages = _messages.where((email) => email.folder == folder).toList();
       }
 
-      debugPrint('EmailProvider: Set ${_messages.length} emails for current view (account: $accountId, folder: ${folder.name})');
+      // Sort messages by date (newest first) and limit to 20 for initial load
+      _messages.sort((a, b) => b.date.compareTo(a.date));
+      if (_messages.length > 20) {
+        _messages = _messages.take(20).toList();
+      }
+
+      debugPrint('EmailProvider: Set ${_messages.length} emails for current view (account: $accountId, folder: ${folder.name}) - limited to 20');
     } catch (e) {
       debugPrint('EmailProvider: Error loading cached emails: $e');
       _messages = [];
@@ -1485,6 +1668,9 @@ class EmailProvider extends ChangeNotifier {
       // Create a set of existing message IDs for quick lookup
       final existingIds = cachedEmails.map((e) => e.messageId).toSet();
 
+      // Collect truly new emails for notifications
+      final List<EmailMessage> trulyNewEmails = [];
+
       // Add new emails that don't already exist
       for (final newEmail in newEmails) {
         if (!existingIds.contains(newEmail.messageId)) {
@@ -1498,10 +1684,17 @@ class EmailProvider extends ChangeNotifier {
           }
 
           cachedEmails.add(newEmail);
+          trulyNewEmails.add(newEmail);
 
           // Also store in Hive
           _messagesBox?.put(newEmail.messageId, newEmail);
         }
+      }
+
+      // Process notifications for truly new emails (only for inbox to avoid spam)
+      if (trulyNewEmails.isNotEmpty && folder == EmailFolder.inbox && _currentAccount != null) {
+        debugPrint('📱 EmailProvider: Processing notifications for ${trulyNewEmails.length} new emails');
+        _processEmailNotifications(trulyNewEmails, _currentAccount!);
       }
 
       // Sort by date (newest first)
@@ -1517,6 +1710,174 @@ class EmailProvider extends ChangeNotifier {
       debugPrint('EmailProvider: Merged ${newEmails.length} new emails, total cached: ${cachedEmails.length}');
     } catch (e) {
       debugPrint('EmailProvider: Error merging emails with cache: $e');
+    }
+  }
+
+  /// Process notifications for new emails
+  Future<void> _processEmailNotifications(List<EmailMessage> newEmails, models.EmailAccount account) async {
+    try {
+      // Only show notifications if app is in background to avoid interrupting user
+      // Also avoid showing notifications for emails older than 1 hour (in case of bulk sync)
+      final recentEmails = newEmails.where((email) {
+        final emailAge = DateTime.now().difference(email.date);
+        return emailAge.inHours < 1;
+      }).toList();
+
+      if (recentEmails.isNotEmpty) {
+        debugPrint('📱 EmailProvider: Showing notifications for ${recentEmails.length} recent emails');
+        await SmartNotificationService.processNewEmails(recentEmails, account);
+      }
+    } catch (e) {
+      debugPrint('❌ EmailProvider: Error processing notifications: $e');
+    }
+  }
+
+  /// Updates an email across all cached folders where it exists
+  void _updateEmailInCache(EmailMessage updatedEmail) {
+    try {
+      if (_accountEmailCache.containsKey(updatedEmail.accountId)) {
+        final accountCache = _accountEmailCache[updatedEmail.accountId]!;
+
+        // Update the email in all folders where it exists
+        for (final folder in accountCache.keys) {
+          final folderEmails = accountCache[folder]!;
+          final emailIndex = folderEmails.indexWhere((e) => e.messageId == updatedEmail.messageId);
+
+          if (emailIndex != -1) {
+            // Update the email in place
+            folderEmails[emailIndex] = updatedEmail;
+            debugPrint('⭐ EmailProvider: Updated email in ${folder.name} folder cache');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ EmailProvider: Error updating email in cache: $e');
+    }
+  }
+
+  /// Setup notification callbacks for handling notification taps
+  void _setupNotificationCallbacks() {
+    // Register callback for opening emails from notifications
+    SmartNotificationService.setEmailOpenCallback((emailId, accountId) {
+      debugPrint('📱 Notification tap: Opening email $emailId for account $accountId');
+      _handleNotificationEmailOpen(emailId, accountId);
+    });
+
+    // Register callback for marking emails as read from notifications
+    SmartNotificationService.setMarkReadCallback((emailId, accountId) {
+      debugPrint('📱 Notification action: Marking email $emailId as read');
+      _handleNotificationMarkRead(emailId, accountId);
+    });
+
+    // Register callback for reply actions from notifications
+    SmartNotificationService.setReplyCallback((emailId, accountId) {
+      debugPrint('📱 Notification action: Reply to email $emailId');
+      _handleNotificationReply(emailId, accountId);
+    });
+
+    debugPrint('📱 EmailProvider: Notification callbacks registered');
+  }
+
+  /// Handle notification tap to open specific email
+  void _handleNotificationEmailOpen(String emailId, String accountId) {
+    try {
+      // Find the email across all folders
+      final email = _findEmailById(emailId, accountId);
+      if (email == null) {
+        debugPrint('❌ EmailProvider: Email not found for ID: $emailId');
+        return;
+      }
+
+      // Switch to the account if not currently selected
+      final account = _accounts.firstWhere(
+        (acc) => acc.id == accountId,
+        orElse: () => models.EmailAccount.empty(),
+      );
+
+      if (account.id.isNotEmpty && _currentAccount?.id != accountId) {
+        switchAccount(account);
+      }
+
+      // Mark email as read when opened from notification
+      if (!email.isRead) {
+        markAsRead(email);
+      }
+
+      debugPrint('📱 EmailProvider: Opened email from notification: ${email.subject}');
+      // TODO: Navigate to email detail screen - this would need to be handled by the UI layer
+    } catch (e) {
+      debugPrint('❌ EmailProvider: Error opening email from notification: $e');
+    }
+  }
+
+  /// Handle notification action to mark email as read
+  void _handleNotificationMarkRead(String emailId, String accountId) {
+    try {
+      final email = _findEmailById(emailId, accountId);
+      if (email != null && !email.isRead) {
+        markAsRead(email);
+        debugPrint('📱 EmailProvider: Marked email as read from notification');
+      }
+    } catch (e) {
+      debugPrint('❌ EmailProvider: Error marking email as read from notification: $e');
+    }
+  }
+
+  /// Handle notification action to reply to email
+  void _handleNotificationReply(String emailId, String accountId) {
+    try {
+      final email = _findEmailById(emailId, accountId);
+      if (email != null) {
+        debugPrint('📱 EmailProvider: Reply action for email: ${email.subject}');
+        // TODO: Navigate to compose screen with reply context - this would need to be handled by the UI layer
+      }
+    } catch (e) {
+      debugPrint('❌ EmailProvider: Error handling reply from notification: $e');
+    }
+  }
+
+  /// Find an email by ID across all folders
+  EmailMessage? _findEmailById(String emailId, String accountId) {
+    if (!_accountEmailCache.containsKey(accountId)) {
+      return null;
+    }
+
+    final accountCache = _accountEmailCache[accountId]!;
+    for (final folderEmails in accountCache.values) {
+      for (final email in folderEmails) {
+        if (email.messageId == emailId) {
+          return email;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Fetch a specific folder in the background when cache is empty
+  Future<void> _fetchFolderInBackground(models.EmailAccount account, EmailFolder folder) async {
+    try {
+      debugPrint('📂 EmailProvider: Background fetching ${folder.name} for ${account.email}...');
+
+      // Fetch emails for this specific folder
+      final emails = await _fetchEmailsForAccount(account, folder, limit: 50);
+
+      // Merge with cache
+      _mergeEmailsWithCache(account.id, folder, emails);
+
+      // If this is the current folder, refresh the view
+      if (_currentAccount?.id == account.id && _currentFolder == folder) {
+        if (_conversationMode) {
+          final cachedMessages = _getEmailsForFolder(account.id, folder);
+          _loadConversationsForCurrentContextSync(cachedMessages, account.id);
+        } else {
+          _loadAccountCachedEmails(account.id, folder);
+        }
+        notifyListeners();
+      }
+
+      debugPrint('✅ EmailProvider: Background fetch complete for ${folder.name} - ${emails.length} emails cached');
+    } catch (e) {
+      debugPrint('❌ EmailProvider: Background fetch failed for ${folder.name}: $e');
     }
   }
 
@@ -1689,14 +2050,25 @@ class EmailProvider extends ChangeNotifier {
       if (account.provider == models.EmailProvider.gmail) {
         debugPrint('🔄 _fetchEmailsForAccount: Using Gmail API service');
 
-        // Use Gmail API service
-        final gmailService = AuthService.getGmailApiService();
+        // Use Gmail API service - with retry if not available
+        var gmailService = AuthService.getGmailApiService();
         debugPrint('🔄 _fetchEmailsForAccount: Gmail service available: ${gmailService != null}');
+
+        // If service is not available, try to initialize it and wait briefly
+        if (gmailService == null) {
+          debugPrint('🔄 _fetchEmailsForAccount: Gmail service not available, attempting to initialize...');
+          await _reinitializeGmailServiceOnStartup();
+
+          // Wait a moment for initialization to complete
+          await Future.delayed(const Duration(milliseconds: 500));
+          gmailService = AuthService.getGmailApiService();
+          debugPrint('🔄 _fetchEmailsForAccount: After initialization attempt, Gmail service available: ${gmailService != null}');
+        }
 
         if (gmailService != null) {
           debugPrint('🔄 _fetchEmailsForAccount: Calling gmailService.fetchEmails...');
           final emails = await gmailService.fetchEmails(
-            accountId: account.email,
+            accountId: account.id,
             maxResults: limit,
             folder: folder,
           );
@@ -1725,7 +2097,7 @@ class EmailProvider extends ChangeNotifier {
         if (yahooService != null) {
           debugPrint('🔄 _fetchEmailsForAccount: Calling yahooService.fetchEmails...');
           final emails = await yahooService.fetchEmails(
-            accountId: account.email,
+            accountId: account.id,
             maxResults: limit,
             folder: folder,
           );
@@ -1905,7 +2277,14 @@ class EmailProvider extends ChangeNotifier {
       if (accountMessages.isNotEmpty) {
         // Group messages into conversations
         _conversations = await _conversationManager.groupIntoConversations(accountMessages, currentAccount.id);
-        debugPrint('EmailProvider: Grouped ${accountMessages.length} messages into ${_conversations.length} conversations for account ${currentAccount.email}');
+
+        // Limit to latest 20 conversations for initial load
+        _conversations.sort((a, b) => b.lastMessageDate.compareTo(a.lastMessageDate));
+        if (_conversations.length > 20) {
+          _conversations = _conversations.take(20).toList();
+        }
+
+        debugPrint('EmailProvider: Grouped ${accountMessages.length} messages into ${_conversations.length} conversations for account ${currentAccount.email} (limited to 20)');
       } else {
         _conversations = [];
         debugPrint('EmailProvider: No messages to group into conversations for account ${currentAccount.email}');
@@ -1953,7 +2332,12 @@ class EmailProvider extends ChangeNotifier {
         // Sort conversations by latest message date
         _conversations.sort((a, b) => b.lastMessageDate.compareTo(a.lastMessageDate));
 
-        debugPrint('EmailProvider: INSTANT grouped ${accountMessages.length} messages into ${_conversations.length} conversations');
+        // Limit to latest 20 conversations for initial load
+        if (_conversations.length > 20) {
+          _conversations = _conversations.take(20).toList();
+        }
+
+        debugPrint('EmailProvider: INSTANT grouped ${accountMessages.length} messages into ${_conversations.length} conversations (limited to 20)');
       } else {
         _conversations = [];
         debugPrint('EmailProvider: INSTANT - no messages for conversations');
@@ -1987,6 +2371,19 @@ class EmailProvider extends ChangeNotifier {
   List<EmailMessage> getMessagesForConversation(Conversation conversation) {
     if (_currentAccount == null) return [];
 
+    // For starred folder, search across all folders since starred messages can be from any folder
+    if (_currentFolder == EmailFolder.starred) {
+      final accountCache = _accountEmailCache[_currentAccount!.id];
+      if (accountCache == null) return [];
+
+      final allMessages = <EmailMessage>[];
+      for (final folderMessages in accountCache.values) {
+        allMessages.addAll(folderMessages);
+      }
+      return allMessages.where((message) => conversation.messageIds.contains(message.messageId)).toList();
+    }
+
+    // For other folders, only look in the current folder
     final allMessages = _accountEmailCache[_currentAccount!.id]?[_currentFolder!] ?? [];
     return allMessages.where((message) => conversation.messageIds.contains(message.messageId)).toList();
   }

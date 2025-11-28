@@ -150,6 +150,10 @@ enum EmailFolder {
   @HiveField(5)
   archive,
 
+  /// The starred folder.
+  @HiveField(7)
+  starred,
+
   /// A custom folder.
   @HiveField(6)
   custom,

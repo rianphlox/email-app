@@ -62,6 +62,10 @@ class EmailAccount extends HiveObject {
   @HiveField(12)
   String? password;
 
+  /// The profile picture URL for the account holder.
+  @HiveField(13)
+  String? profilePictureUrl;
+
   /// Creates a new instance of the [EmailAccount] class.
   EmailAccount({
     required this.id,
@@ -77,6 +81,7 @@ class EmailAccount extends HiveObject {
     this.smtpPort,
     this.isSSL = true,
     this.password,
+    this.profilePictureUrl,
   });
 
   /// Creates an empty [EmailAccount] object.

@@ -83,6 +83,7 @@ dependencies:
 
   # URL launching
   url_launcher: ^6.3.1
+  app_links: ^6.3.2
 
   # Connectivity and background sync
   connectivity_plus: ^5.0.0

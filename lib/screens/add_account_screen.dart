@@ -166,38 +166,81 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   /// Builds a provider selection card
   Widget _buildProviderCard(String provider, String name, IconData icon, Color color) {
     final isSelected = _selectedProvider == provider;
+    final isComingSoon = provider == 'yahoo' || provider == 'outlook';
 
     return InkWell(
-      onTap: () {
-        setState(() {
-          _selectedProvider = provider;
-        });
-      },
+      onTap: isComingSoon
+        ? () {
+            // Show coming soon message
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('$name integration coming soon! 🚀'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        : () {
+            setState(() {
+              _selectedProvider = provider;
+            });
+          },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           border: Border.all(
-            color: isSelected ? color : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
+            color: isComingSoon
+              ? Colors.grey.shade300
+              : isSelected ? color : Colors.grey.shade300,
+            width: isSelected && !isComingSoon ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(12),
-          color: isSelected ? color.withValues(alpha: 0.1) : null,
+          color: isComingSoon
+            ? Colors.grey.shade50
+            : isSelected ? color.withValues(alpha: 0.1) : null,
         ),
-        child: Column(
+        child: Stack(
           children: [
-            Icon(
-              icon,
-              size: 32,
-              color: isSelected ? color : Colors.grey.shade600,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              name,
-              style: TextStyle(
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? color : Colors.grey.shade700,
-              ),
+            Column(
+              children: [
+                Icon(
+                  icon,
+                  size: 32,
+                  color: isComingSoon
+                    ? Colors.grey.shade400
+                    : isSelected ? color : Colors.grey.shade600,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: isSelected && !isComingSoon ? FontWeight.w600 : FontWeight.w500,
+                    color: isComingSoon
+                      ? Colors.grey.shade500
+                      : isSelected ? color : Colors.grey.shade700,
+                  ),
+                ),
+                if (isComingSoon) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Text(
+                      'Coming Soon',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
