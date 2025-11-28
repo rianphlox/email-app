@@ -52,6 +52,9 @@ class EmailProvider extends ChangeNotifier {
   // Background sync debouncing
   Timer? _backgroundSyncTimer;
 
+  // Background email loading timer
+  Timer? _backgroundLoadingTimer;
+
   // Search functionality
   bool _isSearching = false;
   String _searchQuery = '';
@@ -633,6 +636,9 @@ class EmailProvider extends ChangeNotifier {
 
           // Debounced background sync to avoid interfering with instant switching
           _scheduleOptimizedBackgroundSync();
+
+          // Start background loading to continuously fetch more emails
+          _startBackgroundLoading();
         } catch (e) {
           debugPrint('Error switching folder: $e');
           setError('Failed to load ${folder.name} folder');
@@ -780,7 +786,7 @@ class EmailProvider extends ChangeNotifier {
   // Gmail-style infinite scroll loading
   bool _isLoadingMore = false;
   bool _hasMoreEmails = true;
-  int _currentEmailLimit = 10; // Start with 10 emails for faster initial load
+  int _currentEmailLimit = 25; // Start with 25 emails, load more as user scrolls
 
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMoreEmails => _hasMoreEmails;
@@ -812,7 +818,7 @@ class EmailProvider extends ChangeNotifier {
       final previousEmailCount = _messages.length;
 
       // Increase the limit to fetch more emails
-      _currentEmailLimit += 15; // Load 15 more emails at a time
+      _currentEmailLimit += 25; // Load 25 more emails at a time
       debugPrint('📬 EmailProvider: New limit: $_currentEmailLimit');
 
       // Use progressive loading for infinite scroll too
@@ -833,7 +839,36 @@ class EmailProvider extends ChangeNotifier {
   void _resetInfiniteScroll() {
     _isLoadingMore = false;
     _hasMoreEmails = true;
-    _currentEmailLimit = 15; // Start with 15 emails for consistency
+    _currentEmailLimit = 25; // Start with 25 emails for consistency
+  }
+
+  /// Starts background loading to continuously fetch more emails
+  void _startBackgroundLoading() {
+    _backgroundLoadingTimer?.cancel();
+
+    if (_currentAccount == null) return;
+
+    debugPrint('🔄 EmailProvider: Starting background email loading');
+
+    // Load more emails every 15 seconds if we haven't reached the limit
+    _backgroundLoadingTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+      if (_currentAccount == null || _isLoadingMore || !_hasMoreEmails) {
+        return;
+      }
+
+      // Only load in background if we're online and not already at a high email count
+      if (_connectivityManager.isOnline && _messages.length < 200) { // Cap at 200 emails for performance
+        debugPrint('📬 EmailProvider: Background loading more emails (current: ${_messages.length})');
+        await loadMoreEmails();
+      }
+    });
+  }
+
+  /// Stops background loading
+  void _stopBackgroundLoading() {
+    _backgroundLoadingTimer?.cancel();
+    _backgroundLoadingTimer = null;
+    debugPrint('⏹️ EmailProvider: Stopped background email loading');
   }
 
   /// Sends an email.
@@ -2871,6 +2906,7 @@ class EmailProvider extends ChangeNotifier {
   @override
   void dispose() {
     _backgroundSyncTimer?.cancel();
+    _backgroundLoadingTimer?.cancel();
     _emailService.disconnect();
     _connectivityManager.dispose();
     _operationQueue.dispose();

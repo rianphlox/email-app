@@ -44,10 +44,10 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
     _scrollController.addListener(_scrollListener);
   }
 
-  /// Listens to scroll events and triggers loading more emails at 80% scroll
+  /// Listens to scroll events and triggers loading more emails at 70% scroll
   void _scrollListener() {
     if (_scrollController.hasClients) {
-      final threshold = 0.8; // Trigger at 80% scroll
+      final threshold = 0.7; // Trigger at 70% scroll to load more emails earlier
       final position = _scrollController.position;
 
       if (position.pixels / position.maxScrollExtent >= threshold) {
@@ -400,6 +400,37 @@ class _InboxScreenState extends State<InboxScreen> with SingleTickerProviderStat
                         backgroundColor: Colors.transparent,
                         valueColor: AlwaysStoppedAnimation<Color>(
                           Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+
+                  // Show loading indicator when loading more emails at bottom
+                  if (emailProvider.isLoadingMore)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Loading more emails...',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
