@@ -1,4 +1,5 @@
 import 'package:hive/hive.dart';
+import 'package:flutter/foundation.dart';
 import '../models/conversation.dart';
 import '../models/email_message.dart';
 
@@ -64,10 +65,18 @@ class ConversationManager {
       await _conversationsBox?.put('${accountId}_$threadId', conversationMap[threadId]!);
     }
 
-    // Step 3: Return sorted conversations
-    final conversations = conversationMap.values.toList();
+    // Step 3: Filter out conversations with zero messages and return sorted conversations
+    final conversations = conversationMap.values.where((conversation) {
+      if (conversation.messageCount == 0 || conversation.messageIds.isEmpty) {
+        debugPrint('⚠️ ConversationManager: Filtering out empty conversation: ${conversation.id}');
+        return false;
+      }
+      return true;
+    }).toList();
+
     conversations.sort((a, b) => b.lastMessageDate.compareTo(a.lastMessageDate));
 
+    debugPrint('📊 ConversationManager: Returning ${conversations.length} valid conversations');
     return conversations;
   }
 
@@ -125,6 +134,7 @@ class ConversationManager {
   /// Creates a conversation from a group of messages
   Conversation _createConversationFromMessages(String threadId, List<EmailMessage> messages, String accountId) {
     if (messages.isEmpty) {
+      debugPrint('⚠️ ConversationManager: Cannot create conversation from empty message list for thread $threadId');
       throw ArgumentError('Cannot create conversation from empty message list');
     }
 

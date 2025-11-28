@@ -61,6 +61,13 @@ class _ConversationItemState extends State<ConversationItem>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final latestMessage = _getLatestMessage();
+
+    // If no messages are available, show a placeholder or skip this conversation
+    if (latestMessage == null) {
+      debugPrint('⚠️ ConversationItem: Skipping conversation ${widget.conversation.id} - no messages available');
+      return const SizedBox.shrink(); // Return empty widget instead of crashing
+    }
+
     final messageCount = widget.conversation.messageCount;
     final hasMultipleMessages = messageCount > 1;
 
@@ -277,6 +284,22 @@ class _ConversationItemState extends State<ConversationItem>
   Widget _buildSenderNames(bool isDark) {
     // Get unique senders from the conversation participants
     final senders = <String>[];
+
+    // Safety check for empty messages
+    if (widget.messages.isEmpty) {
+      debugPrint('⚠️ ConversationItem: No messages available for sender names');
+      return Text(
+        'Unknown Sender',
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          color: isDark ? Colors.grey[400] : Colors.grey[600],
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
     for (final message in widget.messages) {
       final senderName = _extractSenderName(message.from);
       if (!senders.contains(senderName)) {
@@ -309,6 +332,12 @@ class _ConversationItemState extends State<ConversationItem>
 
   /// Builds the expanded message list
   Widget _buildExpandedMessages(BuildContext context, bool isDark) {
+    // Safety check for empty messages
+    if (widget.messages.isEmpty) {
+      debugPrint('⚠️ ConversationItem: No messages to expand');
+      return const SizedBox.shrink();
+    }
+
     // Sort messages chronologically
     final sortedMessages = List<EmailMessage>.from(widget.messages);
     sortedMessages.sort((a, b) => a.date.compareTo(b.date));
@@ -446,9 +475,10 @@ class _ConversationItemState extends State<ConversationItem>
   }
 
   /// Gets the latest message from the conversation
-  EmailMessage _getLatestMessage() {
+  EmailMessage? _getLatestMessage() {
     if (widget.messages.isEmpty) {
-      throw StateError('Conversation has no messages');
+      debugPrint('⚠️ ConversationItem: Conversation ${widget.conversation.id} has no messages');
+      return null;
     }
 
     // Sort messages by date and return the latest
