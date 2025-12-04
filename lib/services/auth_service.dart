@@ -25,7 +25,7 @@ class AuthService {
       'https://www.googleapis.com/auth/gmail.modify',
     ],
     // The serverClientId is not supported on the web platform.
-    serverClientId: kIsWeb ? null : '968928828097-lh79bdv88j7quj5e2eh30tujskqts17b.apps.googleusercontent.com',
+    serverClientId: kIsWeb ? null : '642304884824-cjf2p2072uq1vlsa06dr9f43dkf5de4f.apps.googleusercontent.com',
   );
 
   static GmailApiService? _gmailApiService;

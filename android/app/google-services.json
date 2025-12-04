@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "968928828097",
-    "project_id": "email-client-app-7de78",
-    "storage_bucket": "email-client-app-7de78.firebasestorage.app"
+    "project_number": "172004584654",
+    "project_id": "qmail-production-bf2c3",
+    "storage_bucket": "qmail-production-bf2c3.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:968928828097:android:a14c9a226fb0453e3b9240",
+        "mobilesdk_app_id": "1:172004584654:android:4b1ba6eac3e63f1dbef49f",
         "android_client_info": {
-          "package_name": "com.example.email_app"
+          "package_name": "com.qubators.qmail"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyD_wHXcmV6q0NzhDyWS6o9SQ6l7IHfVyfQ"
+          "current_key": "AIzaSyDsyaWMcr41RHkUhsIX50ZrUfA2QQUtbec"
         }
       ],
       "services": {
