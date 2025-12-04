@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.email_app"
+    namespace = "com.qubators.qmail"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -24,7 +24,7 @@ android {
 
     defaultConfig {
         // Application ID must match the Firebase package name you set up!
-        applicationId = "com.example.email_app"
+        applicationId = "com.qubators.qmail"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

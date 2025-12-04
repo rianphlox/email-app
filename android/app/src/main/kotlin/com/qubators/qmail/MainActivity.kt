@@ -1,4 +1,4 @@
-package com.example.email_app
+package com.qubators.qmail
 
 import android.content.Intent
 import android.os.Bundle
